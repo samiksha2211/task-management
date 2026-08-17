@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  OFFICER
+}
+
+enum TaskStatus {
+  PENDING
+  COMPLETED
+}
+
+model User {
+  id                String    @id @default(cuid())
+  name              String
+  email             String    @unique
+  password          String
+  designation       String
+  role              Role      @default(OFFICER)
+  department        String?
+  isActive          Boolean   @default(true)
+  avatar            String?
+  resetToken        String?
+  resetTokenExpires DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  tasks             Task[]
+
+  @@index([designation])
+}
+
+model Task {
+  id              String        @id @default(cuid())
+  title           String
+  description     String?
+  date            DateTime
+  dueDate         DateTime
+  remarks         String?
+  status          TaskStatus    @default(PENDING)
+  priority        String?
+  clientRequestId String?       @unique
+  deletedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  officer         User          @relation(fields: [officerId], references: [id], onDelete: Restrict)
+  officerId       String
+
+  @@index([status])
+  @@index([officerId])
+  @@index([dueDate])
+  @@index([deletedAt])
+}

@@ -1,0 +1,280 @@
+/* =========================
+   Dark Theme
+========================= */
+
+html[data-theme="dark"] body{
+    background:#0f172a;
+}
+
+html[data-theme="dark"] .dashboard-container,
+html[data-theme="dark"] .tasks-layout{
+    background:#0f172a;
+}
+
+html[data-theme="dark"] .dashboard-content,
+html[data-theme="dark"] .tasks-content{
+    background:#0f172a;
+}
+
+html[data-theme="dark"] .dashboard-content h1,
+html[data-theme="dark"] .welcome-heading,
+html[data-theme="dark"] .page-title,
+html[data-theme="dark"] .top-left h2,
+html[data-theme="dark"] .section-header h2,
+html[data-theme="dark"] .activity-card h2,
+html[data-theme="dark"] .recent-header h2,
+html[data-theme="dark"] .quick-actions h2{
+    color:#e2e8f0;
+}
+
+html[data-theme="dark"] .logo-card,
+html[data-theme="dark"] .login-card{
+    background:#1e293b;
+    border-color:#334155;
+    box-shadow:0 8px 20px rgba(0,0,0,.4);
+}
+
+html[data-theme="dark"] .login-card h1{
+    color:#93c5fd;
+}
+
+html[data-theme="dark"] .login-card label{
+    color:#cbd5e1;
+}
+
+html[data-theme="dark"] .login-card input{
+    background:#0f172a;
+    border-color:#334155;
+    color:#e2e8f0;
+}
+
+html[data-theme="dark"] .subtitle{
+    color:#94a3b8;
+}
+
+/* Cards */
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .task-card,
+html[data-theme="dark"] .chart-card,
+html[data-theme="dark"] .activity-card,
+html[data-theme="dark"] .quick-actions,
+html[data-theme="dark"] .due-today,
+html[data-theme="dark"] .stat-card,
+html[data-theme="dark"] .recent-tasks-card,
+html[data-theme="dark"] .designation-card,
+html[data-theme="dark"] .report-card,
+html[data-theme="dark"] .settings-card{
+    background:#1e293b;
+    border-color:#334155;
+    box-shadow:0 6px 18px rgba(0,0,0,.35);
+}
+
+html[data-theme="dark"] .card h2,
+html[data-theme="dark"] .stat-content h2,
+html[data-theme="dark"] .due-today h2,
+html[data-theme="dark"] .due-item h4,
+html[data-theme="dark"] .settings-card h2{
+    color:#93c5fd;
+}
+
+html[data-theme="dark"] .card h3,
+html[data-theme="dark"] .stat-content h4,
+html[data-theme="dark"] .due-item p,
+html[data-theme="dark"] .activity-item,
+html[data-theme="dark"] .activity-item strong,
+html[data-theme="dark"] .quick-title{
+    color:#cbd5e1;
+}
+
+html[data-theme="dark"] .chart-card h3,
+html[data-theme="dark"] .report-card h3,
+html[data-theme="dark"] .designation-header h2{
+    color:#93c5fd;
+}
+
+/* Table */
+html[data-theme="dark"] .task-table{
+    background:#1e293b;
+}
+
+html[data-theme="dark"] .task-table thead{
+    background:#334155;
+}
+
+html[data-theme="dark"] .task-table th{
+    color:#e2e8f0;
+}
+
+html[data-theme="dark"] .task-table td{
+    color:#cbd5e1;
+    border-top:1px solid #334155;
+}
+
+html[data-theme="dark"] .task-table tbody tr:hover{
+    background:#263449;
+}
+
+/* Toolbar / inputs */
+html[data-theme="dark"] .task-toolbar input[type="text"],
+html[data-theme="dark"] .task-toolbar select,
+html[data-theme="dark"] .search-box,
+html[data-theme="dark"] .task-search{
+    background:#0f172a;
+    border-color:#334155;
+    color:#e2e8f0;
+}
+
+html[data-theme="dark"] .settings-card input{
+    background:#0f172a;
+    border-color:#334155;
+    color:#e2e8f0;
+}
+
+html[data-theme="dark"] .settings-card input:disabled{
+    background:#0f172a;
+    color:#94a3b8;
+}
+
+html[data-theme="dark"] .settings-card label{
+    color:#cbd5e1;
+}
+
+html[data-theme="dark"] .theme-option{
+    background:#0f172a;
+    border-color:#334155;
+    color:#cbd5e1;
+}
+
+html[data-theme="dark"] .theme-option.active{
+    background:#1e3a5f;
+    border-color:#3b82f6;
+}
+
+html[data-theme="dark"] .avatar-preview{
+    background:#334155;
+    border-color:#475569;
+}
+
+/* Notification */
+html[data-theme="dark"] .notification-btn{
+    background:#1e293b;
+}
+
+html[data-theme="dark"] .notification-dropdown{
+    background:#1e293b;
+    border-color:#334155;
+    box-shadow:0 12px 30px rgba(0,0,0,.5);
+}
+
+html[data-theme="dark"] .notification-header{
+    color:#93c5fd;
+    border-bottom-color:#334155;
+}
+
+html[data-theme="dark"] .notification-item{
+    background:#0f172a;
+}
+
+html[data-theme="dark"] .notification-item:hover{
+    background:#263449;
+}
+
+html[data-theme="dark"] .notification-title{
+    color:#e2e8f0;
+}
+
+/* Profile */
+html[data-theme="dark"] .profile-avatar{
+    background:#1e3a5f;
+}
+
+html[data-theme="dark"] .profile:hover{
+    background:#1e3a5f;
+}
+
+html[data-theme="dark"] .profile:active{
+    background:#17324e;
+}
+
+html[data-theme="dark"] .profile-dropdown{
+    background:#0f172a;
+    border-color:#334155;
+}
+
+html[data-theme="dark"] .profile-dropdown-header{
+    border-color:#1e293b;
+}
+
+html[data-theme="dark"] .profile-dropdown-name{
+    color:#e2e8f0;
+}
+
+html[data-theme="dark"] .profile-dropdown-email{
+    color:#94a3b8;
+}
+
+html[data-theme="dark"] .profile-dropdown-item{
+    background:#1e293b;
+    color:#e2e8f0;
+}
+
+html[data-theme="dark"] .profile-dropdown-item:hover{
+    background:#334155;
+}
+
+html[data-theme="dark"] .profile-dropdown-logout{
+    color:#fca5a5;
+}
+
+html[data-theme="dark"] .profile-dropdown-logout:hover{
+    background:#450a0a;
+    color:#fecaca;
+}
+
+html[data-theme="dark"] .profile-dropdown-item:last-child{
+    margin-bottom:0;
+}
+
+html[data-theme="dark"] .officer-row{
+    background:#0f172a;
+    border-color:#334155;
+}
+
+html[data-theme="dark"] .officer-name{
+    color:#e2e8f0;
+}
+
+/* Sidebar stays dark blue in both themes */
+html[data-theme="dark"] .sidebar{
+    background:#0b1f3d;
+}
+
+html[data-theme="dark"] .activity-item{
+    border-bottom-color:#334155;
+}
+
+html[data-theme="dark"] .designation-header{
+    border-bottom-color:#334155;
+}
+
+html[data-theme="dark"] .settings-card h2{
+    border-bottom-color:#334155;
+}
+
+html[data-theme="dark"] .avatar-section{
+    border-bottom-color:#334155;
+}
+
+html[data-theme="dark"] .settings-hint,
+html[data-theme="dark"] .officer-email{
+    color:#94a3b8;
+}
+
+html[data-theme="dark"] .table-status,
+html[data-theme="dark"] .empty-state{
+    color:#94a3b8;
+}
+
+html[data-theme="dark"] .officer-designation{
+    color:#94a3b8;
+}

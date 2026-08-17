@@ -1,0 +1,340 @@
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+body{
+    background:#ffffff;
+    font-family:Arial, Helvetica, sans-serif;
+}
+
+/* =========================
+   Main Container
+========================= */
+
+.login-container{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    padding:40px 20px;
+}
+
+/* =========================
+   Logo Card
+========================= */
+
+.logo-card{
+    width:350px;                 /* Same width as login card */
+    height:180px;
+
+    background:#ffffff;
+
+    border:1px solid #e5e7eb;
+    border-radius:18px;
+
+    display:flex;
+    justify-content:center;
+    align-items:center;
+
+    margin-bottom:25px;
+
+    box-shadow:0 8px 20px rgba(0,0,0,.08);
+}
+
+.logo-card img{
+    width:160px;
+    height:auto;
+    object-fit:contain;
+}
+
+/* =========================
+   Login Card
+========================= */
+
+.login-card{
+
+    width:350px;
+
+    background:#ffffff;
+
+    border:1px solid #e5e7eb;
+
+    border-radius:18px;
+
+    padding:40px;
+
+    box-shadow:0 8px 20px rgba(0,0,0,.08);
+}
+
+.login-card h1{
+
+    font-size:30px;
+
+    color:#173f73;
+
+    margin-bottom:8px;
+
+    font-weight:600;
+}
+
+.subtitle{
+
+    color:#6b7280;
+
+    font-size:16px;
+
+    margin-bottom:30px;
+}
+
+/* =========================
+   Labels
+========================= */
+
+.login-card label{
+
+    display:block;
+
+    margin-bottom:8px;
+
+    margin-top:22px;
+
+    font-size:16px;
+
+    font-weight:600;
+
+    color:#374151;
+}
+
+/* =========================
+   Inputs
+========================= */
+
+.login-card input{
+
+    width:100%;
+
+    height:55px;
+
+    border:1px solid #d1d5db;
+
+    border-radius:10px;
+
+    padding:0 18px;
+
+    font-size:16px;
+
+    outline:none;
+
+    transition:.3s;
+}
+
+.login-card input:focus{
+
+    border-color:#1d4f91;
+
+    box-shadow:0 0 5px rgba(29,79,145,.15);
+}
+
+/* =========================
+   Forgot Password
+========================= */
+
+.forgot{
+
+    margin-top:18px;
+
+    margin-bottom:20px;
+
+    text-align:right;
+}
+
+.forgot a{
+
+    text-decoration:none;
+
+    color:#0b3b73;
+
+    font-size:15px;
+
+    font-weight:600;
+}
+
+.forgot a:hover{
+
+    text-decoration:underline;
+}
+
+/* =========================
+   Button
+========================= */
+
+button{
+
+    width:100%;
+
+    height:55px;
+
+    border:none;
+
+    border-radius:10px;
+
+    background:#17457b;
+
+    color:#ffffff;
+
+    font-size:20px;
+
+    font-weight:600;
+
+    cursor:pointer;
+
+    transition:.3s;
+}
+
+button:hover{
+
+    background:#0d3663;
+}
+
+/* =========================
+   Mobile
+========================= */
+
+@media (max-width:700px){
+
+.login-container{
+    padding:24px 16px;
+}
+
+.logo-card{
+    width:100%;
+    max-width:350px;
+    height:120px;
+
+    background:#ffffff;
+
+    border:1px solid #e5e7eb;
+
+    border-radius:18px;
+
+    display:flex;
+    justify-content:center;
+    align-items:center;
+
+    margin-bottom:20px;
+
+    box-shadow:0 8px 20px rgba(0,0,0,.08);
+
+    overflow:hidden;
+}
+
+.login-card{
+    width:100%;
+    max-width:350px;
+    padding:28px;
+
+    background:#ffffff;
+
+    border:1px solid #e5e7eb;
+
+    border-radius:18px;
+
+    box-shadow:0 8px 20px rgba(0,0,0,.08);
+}
+
+.logo-card img{
+    width:auto;
+    max-width:80%;
+
+    height:auto;
+
+    object-fit:contain;
+}
+
+}
+
+@media (max-width:380px){
+
+.login-card{
+    padding:22px;
+}
+
+.logo-card img{
+    max-width:70%;
+}
+
+}
+
+.offline-banner{
+    position:fixed;
+    top:0;
+    left:0;
+    right:0;
+    z-index:1200;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:12px;
+    padding:10px 16px;
+    font-size:14px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.08);
+}
+
+.offline-banner.is-offline{
+    background:#fff4e5;
+    color:#8a4b00;
+    border-bottom:1px solid #f5c875;
+}
+
+.offline-banner.is-online{
+    background:#e8f5ee;
+    color:#1f5c3a;
+    border-bottom:1px solid #9ed4b4;
+}
+
+.offline-banner-text{
+    text-align:center;
+}
+
+.offline-banner-btn{
+    border:none;
+    border-radius:8px;
+    padding:6px 12px;
+    background:#1f5c3a;
+    color:#fff;
+    cursor:pointer;
+    font-size:13px;
+}
+
+.sync-badge{
+    display:inline-block;
+    margin-left:8px;
+    padding:2px 8px;
+    border-radius:999px;
+    font-size:11px;
+    font-weight:600;
+    vertical-align:middle;
+}
+
+.sync-badge.sync-pending,
+.sync-badge.sync-syncing{
+    background:#fff4e5;
+    color:#8a4b00;
+}
+
+.sync-badge.sync-failed{
+    background:#fdecea;
+    color:#b42318;
+}
+
+.offline-task-row{
+    background:#fffbf5;
+}
+
+.view-btn-disabled{
+    opacity:0.45;
+    pointer-events:none;
+}

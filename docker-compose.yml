@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: railwork-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: railwork
+      POSTGRES_PASSWORD: railwork
+      POSTGRES_DB: railwork
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./railwork_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U railwork -d railwork"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
