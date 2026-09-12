@@ -1,0 +1,196 @@
+.login-container{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    gap:20px;
+}
+
+.logo-card{
+    width:350px;
+    padding:20px;
+    background:#fff;
+    border-radius:18px;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    box-shadow:0 8px 20px rgba(0,0,0,.08);
+}
+
+.login-card{
+    width:350px;
+    padding:25px;
+    background:#fff;
+    border-radius:18px;
+    box-shadow:0 8px 20px rgba(0,0,0,.08);
+}
+.login-card h1{
+    font-size:34px;
+}
+
+.subtitle{
+    font-size:15px;
+}
+
+.login-card input{
+    height:42px;
+    font-size:15px;
+}
+
+.login-card button{
+    height:42px;
+    font-size:15px;
+}
+
+.remember-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-top:14px;
+    margin-bottom:0;
+    cursor:pointer;
+    font-size:15px;
+    font-weight:500;
+}
+
+.remember-checkbox{
+    width:18px !important;
+    height:18px !important;
+    margin:0;
+    accent-color:#17457b;
+    cursor:pointer;
+}
+
+.login-card select.login-select{
+    width:100%;
+    height:42px;
+    border:1px solid #d1d5db;
+    border-radius:10px;
+    padding:0 12px;
+    font-size:15px;
+    outline:none;
+    transition:.3s;
+    background:#fff;
+    color:#374151;
+    cursor:pointer;
+}
+
+.login-card select.login-select:focus{
+    border-color:#1d4f91;
+}
+
+html[data-theme="dark"] .login-card select.login-select{
+    background:#0f172a;
+    border-color:#334155;
+    color:#e2e8f0;
+}
+
+html[data-theme="dark"] .login-card select.login-select option{
+    background:#1e293b;
+    color:#e2e8f0;
+}
+
+.auth-msg{
+    margin-top:14px;
+    font-size:14px;
+    line-height:1.5;
+    word-break:break-all;
+}
+
+.auth-error{
+    color:#dc2626;
+}
+
+.auth-success{
+    color:#16a34a;
+}
+
+.auth-link{
+    color:#17457b;
+}
+
+.auth-link a{
+    color:#0b3b73;
+    font-weight:600;
+}
+
+.back-to-login{
+    text-align:center;
+}
+
+.create-account-row{
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:6px;
+    margin-top:18px;
+    font-size:14px;
+    color:#6b7280;
+    flex-wrap:wrap;
+}
+
+.create-account-row a{
+    color:#0b3b73;
+    font-weight:700;
+    text-decoration:none;
+}
+
+.create-account-row a:hover{
+    text-decoration:underline;
+}
+
+html[data-theme="dark"] .create-account-row{
+    color:#94a3b8;
+}
+
+html[data-theme="dark"] .create-account-row a{
+    color:#93c5fd;
+}
+
+.register-card{
+    width:400px;
+}
+
+@media (max-width:460px){
+    .register-card{
+        width:100%;
+    }
+}
+
+/* =========================
+   Responsive
+========================= */
+
+@media (max-width:700px){
+    .logo-card,
+    .login-card,
+    .register-card{
+        width:100%;
+        max-width:400px;
+    }
+}
+
+@media (max-width:460px){
+    .logo-card,
+    .login-card,
+    .register-card{
+        max-width:350px;
+        padding:20px;
+    }
+    .login-container{
+        padding:24px 16px;
+    }
+    .login-card h1{
+        font-size:28px;
+    }
+}
+
+@media (max-width:360px){
+    .logo-card,
+    .login-card,
+    .register-card{
+        max-width:320px;
+        padding:16px;
+    }
+}

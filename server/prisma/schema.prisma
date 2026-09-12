@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String         @id @default(cuid())
+  name              String
+  email             String         @unique
+  password          String
+  designation       String
+  role              Role           @default(OFFICER)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  avatar            String?
+  resetToken        String?
+  resetTokenExpires DateTime?
+  department        String?
+  isActive          Boolean        @default(true)
+  mobileNumber      String?        @unique
+  notifications     Notification[]
+  tasks             Task[]
+
+  @@index([designation])
+}
+
+model Task {
+  id              String         @id @default(cuid())
+  title           String
+  description     String?
+  date            DateTime
+  dueDate         DateTime
+  remarks         String?
+  status          TaskStatus     @default(PENDING)
+  deletedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  officerId       String
+  priority        String?
+  clientRequestId String?        @unique
+  attachmentUrl  String?
+  attachmentName String?
+  attachmentType String?
+
+  
+  notifications   Notification[]
+  officer         User           @relation(fields: [officerId], references: [id])
+
+  @@index([status])
+  @@index([officerId])
+  @@index([dueDate])
+  @@index([deletedAt])
+}
+
+model Notification {
+  id                String             @id @default(cuid())
+  taskId            String?
+  officerId         String?
+  type              NotificationType
+  message           String
+  mobileNumber      String
+  status            NotificationStatus @default(PENDING)
+  scheduleFor       DateTime
+  sentAt            DateTime?
+  ProviderMessageID String?            @unique
+  errorMessage      String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  officer           User?              @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  task              Task?              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, officerId, type, scheduleFor])
+  @@index([officerId])
+  @@index([taskId])
+  @@index([scheduleFor])
+}
+
+enum Role {
+  ADMIN
+  OFFICER
+}
+
+enum TaskStatus {
+  PENDING
+  COMPLETED
+  OVERDUE
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  WEEKLY_REMINDER
+  DUE_REMINDER
+  OVERDUE_REMINDER
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}

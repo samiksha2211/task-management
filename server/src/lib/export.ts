@@ -1,0 +1,497 @@
+import fs from "node:fs";
+import PDFDocument from "pdfkit";
+import type { Task, User } from "@prisma/client";
+
+export type ExportTask = Task & { officer: User };
+
+export interface TaskExportRow {
+  serial: number;
+  date: string;
+  task: string;
+  description: string;
+  officer: string;
+  designation: string;
+  email: string;
+  status: string;
+  dueDate: string;
+  completedDate: string;
+  remarks: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function fmtDate(value: Date | string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function statusLabel(task: Task): string {
+  if (task.status === "COMPLETED") return "Completed";
+  const now = new Date();
+  const due = Date.UTC(
+    task.dueDate.getUTCFullYear(),
+    task.dueDate.getUTCMonth(),
+    task.dueDate.getUTCDate()
+  );
+  const startToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return due < startToday ? "Overdue" : "Pending";
+}
+
+export function rowsFromTasks(tasks: ExportTask[]): TaskExportRow[] {
+  return tasks.map((t, i) => ({
+    serial: i + 1,
+    date: fmtDate(t.date),
+    task: t.title,
+    description: t.description ?? "",
+    officer: t.officer.name,
+    designation: t.officer.designation,
+    email: t.officer.email,
+    status: statusLabel(t),
+    dueDate: fmtDate(t.dueDate),
+    completedDate: t.status === "COMPLETED" ? fmtDate(t.updatedAt) : "",
+    remarks: t.remarks ?? "",
+    createdAt: fmtDate(t.createdAt),
+    updatedAt: fmtDate(t.updatedAt),
+  }));
+}
+
+/* ------------------------------- CSV ------------------------------- */
+
+const CSV_HEADERS = [
+  "S.No",
+  "Date",
+  "Task",
+  "Description",
+  "Assigned Officer",
+  "Designation / Department",
+  "Officer Email",
+  "Status",
+  "Due Date",
+  "Remarks",
+  "Created At",
+  "Last Updated",
+];
+
+const ROW_KEYS: (keyof TaskExportRow)[] = [
+  "serial",
+  "date",
+  "task",
+  "description",
+  "officer",
+  "designation",
+  "email",
+  "status",
+  "dueDate",
+  "remarks",
+  "createdAt",
+  "updatedAt",
+];
+
+function csvCell(value: unknown): string {
+  const s = String(value ?? "");
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+export function exportToCsv(rows: TaskExportRow[]): string {
+  const lines = [
+    CSV_HEADERS.map(csvCell).join(","),
+    ...rows.map((r) => ROW_KEYS.map((k) => csvCell(r[k])).join(",")),
+  ];
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
+}
+
+/* ------------------------------- PDF ------------------------------- */
+
+type CellAlign = "left" | "center";
+
+interface PdfColumn {
+  key: keyof TaskExportRow | "status";
+  label: string;
+  pct: number;
+  align: CellAlign;
+}
+
+interface PdfLayoutColumn extends PdfColumn {
+  width: number;
+}
+
+// Column proportions (must total ~100%). The table always fills the full
+// usable page width so columns are never squeezed to fit one page.
+const PDF_LAYOUT: PdfColumn[] = [
+  { key: "serial", label: "S.No.", pct: 6, align: "center" },
+  { key: "date", label: "Date", pct: 10, align: "center" },
+  { key: "task", label: "Task / Description", pct: 28, align: "left" },
+  { key: "designation", label: "Assigned To", pct: 13, align: "left" },
+  { key: "officer", label: "Responsible Officer", pct: 16, align: "left" },
+  { key: "status", label: "Status", pct: 10, align: "center" },
+  { key: "dueDate", label: "Due Date", pct: 9, align: "center" },
+  { key: "completedDate", label: "Completed Date", pct: 8, align: "center" },
+];
+
+const A4_LANDSCAPE_WIDTH = 841.89;
+const PDF_MARGIN = 40;
+const PAGE_WIDTH = A4_LANDSCAPE_WIDTH - PDF_MARGIN * 2;
+
+const CELL_PAD_X = 8;
+const CELL_PAD_Y = 7;
+const LINE_HEIGHT = 12;
+const HEADER_H = 26;
+const HEADER_SIZE = 9;
+const TITLE_SIZE = 9;
+const DESC_SIZE = 8;
+const CELL_SIZE = 8.5;
+const HEAD_BG = "#17457B";
+const HEAD_FG = "#FFFFFF";
+const SEP_COLOR = "#E4E9F0";
+const VSEP_COLOR = "#EFF3F9";
+const ALT_ROW_BG = "#F6F9FC";
+const TITLE_COLOR = "#163D6B";
+const TASK_TITLE_COLOR = "#1F2937";
+const TASK_DESC_COLOR = "#4B5563";
+const CELL_TEXT_COLOR = "#374151";
+
+const STATUS_STYLES: Record<string, { bg: string; fg: string }> = {
+  Completed: { bg: "#E2F3E7", fg: "#1E7A3C" },
+  Pending: { bg: "#FFF3D6", fg: "#9A6B00" },
+  Overdue: { bg: "#FBE3E3", fg: "#C1241E" },
+};
+
+const FONT_SET = { regular: "Arial", bold: "Arial-Bold" };
+const FONT_FALLBACK = { regular: "Helvetica", bold: "Helvetica-Bold" };
+
+type Fonts = { regular: string; bold: string };
+
+const tableWidth = (cols: PdfLayoutColumn[]): number =>
+  cols.reduce((s, c) => s + c.width, 0);
+
+function buildColumns(): PdfLayoutColumn[] {
+  const base = PDF_LAYOUT.map((c) => Math.round((c.pct / 100) * PAGE_WIDTH));
+  const total = base.reduce((s, w) => s + w, 0);
+  const cols = PDF_LAYOUT.map((c, i): PdfLayoutColumn => ({ ...c, width: base[i] }));
+  const task = cols.find((c) => c.key === "task");
+  if (task) task.width += Math.round(PAGE_WIDTH - total);
+  return cols;
+}
+
+function registerFonts(doc: PDFKit.PDFDocument): Fonts {
+  const regular = "C:\\Windows\\Fonts\\arial.ttf";
+  const bold = "C:\\Windows\\Fonts\\arialbd.ttf";
+  try {
+    if (fs.existsSync(regular) && fs.existsSync(bold)) {
+      doc.registerFont(FONT_SET.regular, regular);
+      doc.registerFont(FONT_SET.bold, bold);
+      return FONT_SET;
+    }
+  } catch {
+    // fall through to embedded base fonts
+  }
+  return FONT_FALLBACK;
+}
+
+function wrap(
+  doc: PDFKit.PDFDocument,
+  text: string,
+  width: number,
+  size: number
+): string[] {
+  const words = String(text ?? "").split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const test = cur ? `${cur} ${w}` : w;
+    if (doc.widthOfString(test, { size: size } as never) <= width) {
+      cur = test;
+    } else {
+      if (cur) lines.push(cur);
+      cur = w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [""];
+}
+
+function measureLines(
+  doc: PDFKit.PDFDocument,
+  font: string,
+  text: string,
+  width: number,
+  size: number
+): string[] {
+  // widthOfString measures at the document's current font size, so the size
+  // MUST be set here to match the size the line is later rendered at.
+  doc.font(font).fontSize(size);
+  return wrap(doc, text, width, size);
+}
+
+function cellValue(row: TaskExportRow, col: PdfColumn): string {
+  if (col.key === "status") return row.status;
+  if (col.key === "completedDate") return row.completedDate || "—";
+  return String(row[col.key] ?? "");
+}
+
+function taskLines(
+  doc: PDFKit.PDFDocument,
+  row: TaskExportRow,
+  width: number,
+  fonts: Fonts
+): { title: string[]; desc: string[]; count: number } {
+  const title = measureLines(doc, fonts.bold, row.task, width, TITLE_SIZE);
+  const desc = row.description
+    ? measureLines(doc, fonts.regular, row.description, width, DESC_SIZE)
+    : [];
+  return { title, desc, count: title.length + desc.length };
+}
+
+function rowHeight(
+  doc: PDFKit.PDFDocument,
+  cols: PdfLayoutColumn[],
+  row: TaskExportRow,
+  fonts: Fonts
+): number {
+  let maxLines = 1;
+  for (const col of cols) {
+    if (col.key === "status") continue;
+    const contentW = col.width - CELL_PAD_X * 2;
+    const n =
+      col.key === "task"
+        ? taskLines(doc, row, contentW, fonts).count
+        : measureLines(doc, fonts.regular, cellValue(row, col), contentW, CELL_SIZE).length;
+    if (n > maxLines) maxLines = n;
+  }
+  return maxLines * LINE_HEIGHT + CELL_PAD_Y * 2;
+}
+
+function drawHeader(
+  doc: PDFKit.PDFDocument,
+  cols: PdfLayoutColumn[],
+  fonts: Fonts,
+  x: number,
+  y: number
+): number {
+  doc.rect(x, y, tableWidth(cols), HEADER_H).fill(HEAD_BG);
+  let cx = x;
+  doc.font(fonts.bold).fontSize(HEADER_SIZE).fillColor(HEAD_FG);
+  const textTop = y + (HEADER_H - HEADER_SIZE - 2) / 2;
+  for (const col of cols) {
+    if (col.align === "center") {
+      doc.text(col.label, cx + CELL_PAD_X, textTop, {
+        width: col.width - CELL_PAD_X * 2,
+        align: "center",
+        lineGap: 0,
+      });
+    } else {
+      doc.text(col.label, cx + CELL_PAD_X, textTop, {
+        width: col.width - CELL_PAD_X * 2,
+        lineGap: 0,
+      });
+    }
+    cx += col.width;
+  }
+  return y + HEADER_H;
+}
+
+function drawStatusBadge(
+  doc: PDFKit.PDFDocument,
+  col: PdfLayoutColumn,
+  cx: number,
+  y: number,
+  rowH: number,
+  fonts: Fonts,
+  status: string
+): void {
+  const style = STATUS_STYLES[status] ?? STATUS_STYLES.Pending;
+  const size = CELL_SIZE;
+  const padX = 7;
+  doc.font(fonts.bold).fontSize(size);
+  const tw = doc.widthOfString(status, { size: size } as never) + padX * 2;
+  const bh = 16;
+  const bx = cx + (col.width - tw) / 2;
+  const by = y + (rowH - bh) / 2;
+  doc.roundedRect(bx, by, tw, bh, bh / 2).fill(style.bg);
+  doc
+    .fillColor(style.fg)
+    .text(status, bx, by + (bh - size - 0.5) / 2, {
+      width: tw,
+      align: "center",
+      lineGap: 0,
+    });
+}
+
+function drawRowContent(
+  doc: PDFKit.PDFDocument,
+  cols: PdfLayoutColumn[],
+  fonts: Fonts,
+  x: number,
+  row: TaskExportRow,
+  y: number,
+  rowH: number,
+  isAlt: boolean
+): void {
+  // Clean row background (white, with a very light zebra stripe on alternate rows).
+  doc.rect(x, y, tableWidth(cols), rowH).fill(isAlt ? ALT_ROW_BG : "#FFFFFF");
+
+  // Subtle vertical separators at column boundaries.
+  let vx = x;
+  for (let i = 0; i < cols.length - 1; i++) {
+    vx += cols[i].width;
+    doc
+      .moveTo(vx, y)
+      .lineTo(vx, y + rowH)
+      .strokeColor(VSEP_COLOR)
+      .lineWidth(0.5)
+      .stroke();
+  }
+
+  let cx = x;
+  for (const col of cols) {
+    const contentW = col.width - CELL_PAD_X * 2;
+
+    if (col.key === "status") {
+      drawStatusBadge(doc, col, cx, y, rowH, fonts, row.status);
+    } else if (col.key === "task") {
+      const { title, desc } = taskLines(doc, row, contentW, fonts);
+      const total = title.length + desc.length;
+      let ty = y + CELL_PAD_Y + (rowH - CELL_PAD_Y * 2 - total * LINE_HEIGHT) / 2;
+      doc.font(fonts.bold).fontSize(TITLE_SIZE).fillColor(TASK_TITLE_COLOR);
+      for (const t of title) {
+        doc.text(t, cx + CELL_PAD_X, ty, { lineGap: 0 });
+        ty += LINE_HEIGHT;
+      }
+      if (desc.length) {
+        doc.font(fonts.regular).fontSize(DESC_SIZE).fillColor(TASK_DESC_COLOR);
+        for (const d of desc) {
+          doc.text(d, cx + CELL_PAD_X, ty, { lineGap: 0 });
+          ty += LINE_HEIGHT;
+        }
+      }
+    } else {
+      const lines = measureLines(doc, fonts.regular, cellValue(row, col), contentW, CELL_SIZE);
+      const textH = lines.length * LINE_HEIGHT;
+      let ty = y + CELL_PAD_Y + (rowH - CELL_PAD_Y * 2 - textH) / 2;
+      doc.font(fonts.regular).fontSize(CELL_SIZE).fillColor(CELL_TEXT_COLOR);
+      for (const ln of lines) {
+        // Lines are already pre-wrapped to fit contentW; render without a
+        // width so pdfkit never re-wraps (which caused duplicate fragments).
+        if (col.align === "center") {
+          const tw = doc.widthOfString(ln);
+          doc.text(ln, cx + (col.width - tw) / 2, ty, { lineGap: 0 });
+        } else {
+          doc.text(ln, cx + CELL_PAD_X, ty, { lineGap: 0 });
+        }
+        ty += LINE_HEIGHT;
+      }
+    }
+    cx += col.width;
+  }
+}
+
+export async function exportToPdf(
+  rows: TaskExportRow[],
+  meta: { title: string; subtitle: string }
+): Promise<Buffer> {
+  const doc = new PDFDocument({
+    size: "A4",
+    layout: "landscape",
+    margin: PDF_MARGIN,
+    info: { Title: meta.title },
+  });
+
+  const chunks: Buffer[] = [];
+  doc.on("data", (c: Buffer) => chunks.push(c));
+
+  const finished = new Promise<void>((resolve, reject) => {
+    doc.on("end", () => resolve());
+    doc.on("error", reject);
+  });
+
+  const fonts = registerFonts(doc);
+  const cols = buildColumns();
+  const tableW = tableWidth(cols);
+  const pageWidth = doc.page.width - PDF_MARGIN * 2;
+  const x = PDF_MARGIN + (pageWidth - tableW) / 2;
+
+  // Report header (page one only).
+  doc
+    .font(fonts.bold)
+    .fontSize(18)
+    .fillColor(TITLE_COLOR)
+    .text(meta.title, PDF_MARGIN, PDF_MARGIN - 2);
+  doc
+    .font(fonts.regular)
+    .fontSize(9)
+    .fillColor("#6B7280")
+    .text(meta.subtitle, PDF_MARGIN, PDF_MARGIN + 20);
+  doc
+    .moveTo(x, PDF_MARGIN + 36)
+    .lineTo(x + tableW, PDF_MARGIN + 36)
+    .strokeColor("#CBD5E1")
+    .lineWidth(1)
+    .stroke();
+
+  let y = PDF_MARGIN + 46;
+  y = drawHeader(doc, cols, fonts, x, y);
+  const headerBottomY = y;
+
+  let pageNum = 1;
+  // Horizontal separator y-positions for the current page. Drawn AFTER all row
+  // fills so every border is crisp (a fill drawn later would otherwise cover
+  // the line beneath it).
+  const pageSeparators: number[] = [headerBottomY];
+
+  const drawFooter = (): void => {
+    doc
+      .font(fonts.regular)
+      .fontSize(8)
+      .fillColor("#94A3B8")
+      .text(
+        `Page ${pageNum}`,
+        doc.page.width - PDF_MARGIN - 120,
+        doc.page.height - PDF_MARGIN - 12,
+        { width: 120, align: "right" }
+      );
+  };
+
+  const flushSeparators = (): void => {
+    for (const yy of pageSeparators) {
+      doc
+        .moveTo(x, yy)
+        .lineTo(x + tableW, yy)
+        .strokeColor(SEP_COLOR)
+        .lineWidth(0.6)
+        .stroke();
+    }
+    pageSeparators.length = 0;
+  };
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowH = rowHeight(doc, cols, row, fonts);
+
+    // Keep each row intact; start a new page (with header) if it would split.
+    if (y + rowH > doc.page.height - PDF_MARGIN) {
+      drawFooter();
+      flushSeparators();
+      doc.addPage();
+      pageNum += 1;
+      y = PDF_MARGIN + 6;
+      y = drawHeader(doc, cols, fonts, x, y);
+      pageSeparators.push(y);
+    }
+
+    drawRowContent(doc, cols, fonts, x, row, y, rowH, i % 2 === 1);
+    pageSeparators.push(y + rowH);
+    y += rowH;
+  }
+
+  flushSeparators();
+  drawFooter();
+
+  doc.end();
+  await finished;
+  return Buffer.concat(chunks);
+}
