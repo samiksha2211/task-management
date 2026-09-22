@@ -29,6 +29,7 @@ const taskFields = {
   dueDate: z.coerce.date(),
   remarks: z.string().optional().nullable(),
   officerId: z.string().min(1),
+  additionalOfficerIds: z.array(z.string().min(1)).optional().default([]),
   status: statusInput.default("Pending"),
   priority: z.string().trim().max(30).optional().nullable(),
 
@@ -65,6 +66,15 @@ const exportQuerySchema = z.object({
 });
 
 const activeWhere: Prisma.TaskWhereInput = { deletedAt: null };
+
+const taskInclude = {
+  officer: true,
+  additionalAssignees: {
+    include: {
+    officer: true,
+  },
+},
+} satisfies Prisma.TaskInclude;
 
 function statusFilterToWhere(status?: string): Prisma.TaskWhereInput {
   switch (status?.toLowerCase()) {
@@ -136,7 +146,7 @@ export async function listTasks(req: AuthRequest, res: Response): Promise<void> 
     prisma.task.count({ where }),
     prisma.task.findMany({
       where,
-      include: { officer: true },
+       include: taskInclude,
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
@@ -187,8 +197,8 @@ export async function exportTasks(req: AuthRequest, res: Response): Promise<void
 
   const tasks = await prisma.task.findMany({
     where,
-    include: { officer: true },
-    orderBy: { createdAt: "desc" },
+    include: taskInclude,
+    orderBy: {  date: "desc" },
   });
 
   if (tasks.length === 0) {
@@ -226,7 +236,7 @@ export async function exportTasks(req: AuthRequest, res: Response): Promise<void
 export async function getTask(req: AuthRequest, res: Response): Promise<void> {
   const task = await prisma.task.findFirst({
     where: { id: param(req, "id"), deletedAt: null },
-    include: { officer: true },
+    include: taskInclude,
   });
   if (!task) {
     res.status(404).json({ error: "Task not found" });
@@ -241,7 +251,7 @@ export async function createTask(req: AuthRequest, res: Response): Promise<void>
   if (body.clientRequestId) {
     const existing = await prisma.task.findUnique({
       where: { clientRequestId: body.clientRequestId },
-      include: { officer: true },
+      include: taskInclude,
     });
     if (existing) {
       res.status(200).json({ task: serializeTask(existing), deduplicated: true });
@@ -265,6 +275,14 @@ try {
       dueDate: body.dueDate,
       remarks: body.remarks ?? null,
       officerId: body.officerId,
+      
+      additionalAssignees: {
+      create: body.additionalOfficerIds
+      .filter((id) => id !== body.officerId)
+      .map((officerId) => ({
+       officerId,
+      })),
+},
       status: normalizeStatus(body.status),
       priority: body.priority ?? null,
       
@@ -273,7 +291,7 @@ try {
       attachmentType: body.attachmentType ?? null,
       clientRequestId: body.clientRequestId ?? null,
     },
-    include: { officer: true },
+    include: taskInclude,
   });
 } catch (error) {
   if (
@@ -285,9 +303,7 @@ try {
       where: {
         clientRequestId: body.clientRequestId,
       },
-      include: {
-        officer: true,
-      },
+      include: taskInclude,
     });
 
     if (existing) {
@@ -353,6 +369,16 @@ export async function updateTask(req: AuthRequest, res: Response): Promise<void>
   }
 
   const data: Prisma.TaskUpdateInput = {};
+  if (body.additionalOfficerIds !== undefined) {
+  data.additionalAssignees = {
+    deleteMany: {},
+    create: body.additionalOfficerIds
+      .filter((id) => id !== (body.officerId ?? existing.officerId))
+      .map((officerId) => ({
+        officerId,
+      })),
+  };
+}
   if (body.title !== undefined) data.title = body.title;
   if (body.description !== undefined) data.description = body.description;
   if (body.remarks !== undefined) data.remarks = body.remarks;
@@ -365,7 +391,7 @@ export async function updateTask(req: AuthRequest, res: Response): Promise<void>
   const task = await prisma.task.update({
     where: { id: param(req, "id") },
     data,
-    include: { officer: true },
+    include: taskInclude,
   });
 
   res.json({ task: serializeTask(task) });
@@ -386,7 +412,7 @@ export async function updateTaskStatus(req: AuthRequest, res: Response): Promise
   const task = await prisma.task.update({
     where: { id: param(req, "id") },
     data: { status: normalizeStatus(body.status) },
-    include: { officer: true },
+    include: taskInclude,
   });
 
   res.json({ task: serializeTask(task) });
@@ -414,7 +440,7 @@ export async function softDelete(req: AuthRequest, res: Response): Promise<void>
 export async function recycleBin(_req: AuthRequest, res: Response): Promise<void> {
   const tasks = await prisma.task.findMany({
     where: { deletedAt: { not: null } },
-    include: { officer: true },
+    include: taskInclude,
     orderBy: { deletedAt: "desc" },
   });
 
@@ -433,7 +459,7 @@ export async function restore(req: AuthRequest, res: Response): Promise<void> {
   const task = await prisma.task.update({
     where: { id: param(req, "id") },
     data: { deletedAt: null },
-    include: { officer: true },
+    include: taskInclude,
   });
 
   res.json({ task: serializeTask(task) });

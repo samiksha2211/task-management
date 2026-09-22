@@ -12,6 +12,7 @@ import {
   isNetworkError,
 } from "@/lib/offline";
 import DesignationAutocomplete from "@/components/DesignationAutocomplete";
+import MultiDesignationSelect from "@/components/MultiDesignationSelect";
 import "../tasks.css";
 import "./add.css";
 
@@ -30,6 +31,7 @@ export default function AddTaskPage() {
   const [date, setDate] = useState("");
   const [taskName, setTaskName] = useState("");
   const [designation, setDesignation] = useState("");
+  const [additionalDesignations, setAdditionalDesignations] = useState<string[]>([]);
   const [status, setStatus] = useState("Pending");
   const [dueDays, setDueDays] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -80,6 +82,10 @@ export default function AddTaskPage() {
       date,
       dueDate: effectiveDueDate,
       designation,
+       additionalDesignations:
+    additionalDesignations.filter(
+      (d) => d !== designation
+      ),
       status: status as "Pending" | "Completed",
     };
 
@@ -125,6 +131,25 @@ export default function AddTaskPage() {
           body: JSON.stringify({ designation }),
         }
       );
+      const additionalOfficerData = await Promise.all(
+      additionalDesignations
+      .filter((d) => d !== designation)
+      .map((additionalDesignation) =>
+      apiFetch<{ user: ApiUser }>(
+        "/api/users/ensure-by-designation",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            designation: additionalDesignation,
+          }),
+        }
+      )
+    )
+);
+
+const additionalOfficerIds = additionalOfficerData.map(
+  (item) => item.user.id
+);
 
       await apiFetch("/api/tasks", {
         method: "POST",
@@ -135,6 +160,7 @@ export default function AddTaskPage() {
           dueDate: payload.dueDate,
           remarks: null,
           officerId: officerData.user.id,
+          additionalOfficerIds,
           status: payload.status,
           attachmentUrl: attachmentData?.attachmentUrl ?? null,
           attachmentName: attachmentData?.attachmentName ?? null,
@@ -273,6 +299,19 @@ export default function AddTaskPage() {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
+              </div>
+              <div className="form-group">
+             <label>Also Assigned To</label>
+
+            <MultiDesignationSelect
+            value={additionalDesignations}
+            onChange={setAdditionalDesignations}
+             exclude={designation}
+              />
+
+            <span className="form-hint">
+             Optional. Select one or more additional officers.
+             </span>
               </div>
 
               <div className="button-group">

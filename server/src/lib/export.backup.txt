@@ -1,21 +1,8 @@
 import fs from "node:fs";
 import PDFDocument from "pdfkit";
-import type {
-  Task,
-  User,
-  TaskAdditionalAssignee,
-} from "@prisma/client";
+import type { Task, User } from "@prisma/client";
 
-// export type ExportTask = Task & { officer: User };
-export type ExportTask = Task & {
-  officer: User;
-
-  additionalAssignees: (
-    TaskAdditionalAssignee & {
-      officer: User;
-    }
-  )[];
-};
+export type ExportTask = Task & { officer: User };
 
 export interface TaskExportRow {
   serial: number;
@@ -25,7 +12,6 @@ export interface TaskExportRow {
   attachmentUrl: string;
   officer: string;
   designation: string;
-  alsoAssignedTo: string;
   email: string;
   status: string;
   dueDate: string;
@@ -66,15 +52,6 @@ export function rowsFromTasks(tasks: ExportTask[]): TaskExportRow[] {
     attachmentUrl: t.attachmentUrl ?? "",
     officer: t.officer.name,
     designation: t.officer.designation,
-
-    alsoAssignedTo:
-    t.additionalAssignees &&
-    t.additionalAssignees.length > 0
-    ? t.additionalAssignees
-        .map((assignment) => assignment.officer.designation)
-        .join(", ")
-    : "-",
-
     email: t.officer.email,
     status: statusLabel(t),
     dueDate: fmtDate(t.dueDate),
@@ -147,62 +124,16 @@ interface PdfLayoutColumn extends PdfColumn {
 
 // Column proportions (must total ~100%). The table always fills the full
 // usable page width so columns are never squeezed to fit one page.
-// 
 const PDF_LAYOUT: PdfColumn[] = [
-  {
-    key: "serial",
-    label: "S.No.",
-    pct: 5,
-    align: "center",
-  },
-  {
-    key: "date",
-    label: "Date",
-    pct: 9,
-    align: "center",
-  },
-  {
-    key: "task",
-    label: "Task / Description",
-    pct: 25,
-    align: "left",
-  },
-  {
-    key: "designation",
-    label: "Assigned To",
-    pct: 11,
-    align: "left",
-  },
-  {
-    key: "alsoAssignedTo",
-    label: "Also Assigned To",
-    pct: 14,
-    align: "left",
-  },
-  {
-    key: "remarks",
-    label: "Remarks",
-    pct: 12,
-    align: "left",
-  },
-  {
-    key: "attachmentUrl",
-    label: "Attachment",
-    pct: 7,
-    align: "center",
-  },
-  {
-    key: "status",
-    label: "Status",
-    pct: 7,
-    align: "center",
-  },
-  {
-    key: "dueDate",
-    label: "Due Date",
-    pct: 10,
-    align: "center",
-  },
+  { key: "serial", label: "S.No.", pct: 6, align: "center" },
+  { key: "date", label: "Date", pct: 10, align: "center" },
+  { key: "task", label: "Task / Description", pct: 28, align: "left" },
+  { key: "designation", label: "Assigned To", pct: 13, align: "left" },
+  { key: "remarks", label: "Remarks", pct: 16, align: "left" },
+  { key: "attachmentUrl", label: "Attachment", pct: 10, align: "center" },
+  { key: "status", label: "Status", pct: 10, align: "center" },
+  { key: "dueDate", label: "Due Date", pct: 9, align: "center" },
+  { key: "completedDate", label: "Completed Date", pct: 8, align: "center" },
 ];
 
 const A4_LANDSCAPE_WIDTH = 841.89;
@@ -394,6 +325,41 @@ function drawStatusBadge(
     });
 }
 
+function drawRowContent(
+  doc: PDFKit.PDFDocument,
+  cols: PdfLayoutColumn[],
+  fonts: Fonts,
+  x: number,
+  row: TaskExportRow,
+  y: number,
+  rowH: number,
+  isAlt: boolean
+): void {
+  // Clean row background
+  doc.rect(x, y, tableWidth(cols), rowH).fill(
+    isAlt ? ALT_ROW_BG : "#FFFFFF"
+  );
+
+  // Vertical separators
+  let vx = x;
+
+  for (let i = 0; i < cols.length - 1; i++) {
+    vx += cols[i].width;
+
+    doc
+      .moveTo(vx, y)
+      .lineTo(vx, y + rowH)
+      .strokeColor(VSEP_COLOR)
+      .lineWidth(0.5)
+      .stroke();
+  }
+
+  let cx = x;
+
+  for (const col of cols) {
+    const contentW = col.width - CELL_PAD_X * 2;
+
+    // Attachment column
   function drawRowContent(
   doc: PDFKit.PDFDocument,
   cols: PdfLayoutColumn[],

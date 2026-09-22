@@ -61,6 +61,7 @@ const officers = [
 
   { designation: "Senior Clerk", mobileNumber: "7011692331" },
   { designation: "JE/Tele", mobileNumber: "8604779731" },
+  { designation: "CPM/GSU", mobileNumber: "7388948962" },
 
 ];
 function slugify(value: string) {

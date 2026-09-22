@@ -8,7 +8,6 @@ import { requireAdmin, requireAuth } from "../middleware/auth";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import path from "path";
 
 const router = Router();
 const uploadDir = path.join(process.cwd(), "uploads");

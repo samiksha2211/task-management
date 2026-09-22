@@ -8,52 +8,67 @@ datasource db {
 }
 
 model User {
-  id                String         @id @default(cuid())
-  name              String
-  email             String         @unique
-  password          String
-  designation       String
-  role              Role           @default(OFFICER)
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-  avatar            String?
-  resetToken        String?
-  resetTokenExpires DateTime?
-  department        String?
-  isActive          Boolean        @default(true)
-  mobileNumber      String?        @unique
-  notifications     Notification[]
-  tasks             Task[]
+  id                        String                   @id @default(cuid())
+  name                      String
+  email                     String                   @unique
+  password                  String
+  designation               String
+  role                      Role                     @default(OFFICER)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  avatar                    String?
+  resetToken                String?
+  resetTokenExpires         DateTime?
+  department                String?
+  isActive                  Boolean                  @default(true)
+  mobileNumber              String?                  @unique
+  notifications             Notification[]
+  tasks                     Task[]
+  additionalTaskAssignments TaskAdditionalAssignee[]
 
   @@index([designation])
 }
 
 model Task {
-  id              String         @id @default(cuid())
+  id              String     @id @default(cuid())
   title           String
   description     String?
   date            DateTime
   dueDate         DateTime
   remarks         String?
-  status          TaskStatus     @default(PENDING)
+  status          TaskStatus @default(PENDING)
   deletedAt       DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
   officerId       String
   priority        String?
-  clientRequestId String?        @unique
-  attachmentUrl  String?
-  attachmentName String?
-  attachmentType String?
+  clientRequestId String?    @unique
+  attachmentUrl   String?
+  attachmentName  String?
+  attachmentType  String?
 
-  
-  notifications   Notification[]
-  officer         User           @relation(fields: [officerId], references: [id])
+  notifications       Notification[]
+  officer             User                     @relation(fields: [officerId], references: [id])
+  additionalAssignees TaskAdditionalAssignee[]
 
   @@index([status])
   @@index([officerId])
   @@index([dueDate])
   @@index([deletedAt])
+}
+
+model TaskAdditionalAssignee {
+  id        String   @id @default(cuid())
+  taskId    String
+  officerId String
+  createdAt DateTime @default(now())
+
+  task    Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  officer User @relation(fields: [officerId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, officerId])
+  @@index([taskId])
+  @@index([officerId])
 }
 
 model Notification {

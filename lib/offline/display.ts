@@ -26,6 +26,9 @@ export function pendingTaskToApiTask(item: PendingTaskCreate): ApiTask {
     date: isoDate,
     dueDate: isoDueDate,
     remarks: null,
+    attachmentUrl: null,
+    attachmentName: null,
+    attachmentType: null,
     status: taskStatusFromDue(item.status, item.dueDate),
     deletedAt: null,
     createdAt: item.createdAt,
@@ -36,6 +39,14 @@ export function pendingTaskToApiTask(item: PendingTaskCreate): ApiTask {
       designation: item.designation,
       email: "",
     },
+    additionalAssignees: (
+    item.additionalDesignations ?? []
+    ).map((designation) => ({
+    id: `offline-additional-officer:${designation}`,
+    name: designation,
+    designation,
+    email: "",
+    })),
     offlinePending: true,
     clientRequestId: item.clientRequestId,
     syncState: item.syncState,

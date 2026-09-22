@@ -20,6 +20,12 @@ export type ApiTask = {
     designation: string;
     email: string;
   };
+  additionalAssignees: {
+  id: string;
+  name: string;
+  designation: string;
+  email: string;
+}[];
   offlinePending?: boolean;
   clientRequestId?: string;
   syncState?: "pending" | "syncing" | "failed";

@@ -56,15 +56,14 @@
    Task Container
 ========================= */
 
-.task-card{
-    background:#fff;
-    overflow-x:auto;
-    border-radius:18px;
-    padding:25px;
-    margin-top:20px;
-    box-shadow:0 8px 20px rgba(0,0,0,.08);
+.task-card {
+    background: #fff;
+    overflow-x: auto;
+    border-radius: 18px;
+    padding: 25px;
+    margin-top: 20px;
+    box-shadow: 0 8px 20px rgba(0,0,0,.08);
 }
-
 /* =========================
    Search Bar
 ========================= */
@@ -177,10 +176,66 @@
     min-width:0;
 }
 
-.task-toolbar .designation-filter{
-    max-width:220px;
+
+/* =========================
+   Multi Designation Filter
+========================= */
+
+.designation-multi-filter {
+    position:relative;
+    width:190px;
+    flex:0 0 190px;
 }
 
+.task-toolbar .designation-filter-button {
+    width:100%;
+    height:44px;
+    padding:0 15px;
+
+    background:#fff !important;
+    color:#111827 !important;
+
+    border:1px solid #ddd !important;
+    border-radius:10px !important;
+    outline:none;
+    box-shadow:none !important;
+
+    font-family:inherit;
+    font-size:15px;
+    font-weight:400;
+
+    cursor:pointer;
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+
+    text-align:left;
+    white-space:nowrap;
+}
+
+.task-toolbar .designation-filter-button:hover,
+.task-toolbar .designation-filter-button:focus,
+.task-toolbar .designation-filter-button:active {
+    background:#fff !important;
+    color:#111827 !important;
+    border-color:#ddd !important;
+    box-shadow:none !important;
+}
+
+.designation-filter-text {
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+.designation-filter-arrow {
+    color:#111827;
+    flex-shrink:0;
+    font-size:12px;
+}
 .table-status{
     text-align:center;
     padding:30px;
@@ -249,14 +304,6 @@
 .add-task-btn:hover{
     background:#0f3360;
 }
-.action-buttons{
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    gap:8px;
-    flex-wrap:nowrap;
-}
-
 .view-btn,
 .edit-btn,
 .delete-btn,
@@ -297,55 +344,158 @@
 .status-toggle-btn:hover{
     background:#0284c7;
 }
-/* Column Widths */
-
-.task-table th:nth-child(1),
-.task-table td:nth-child(1){
-    width:60px;
-}
-
-.task-table th:nth-child(2),
-.task-table td:nth-child(2){
-    width:90px;
-}
-
-.task-table th:nth-child(3),
-.task-table td:nth-child(3){
-    width:210px;
-}
-
-.task-table th:nth-child(4),
-.task-table td:nth-child(4){
-    width:170px;
-}
-
-.task-table th:nth-child(5),
-.task-table td:nth-child(5){
-    width:130px;
-}
-
-.task-table th:nth-child(6),
-.task-table td:nth-child(6){
-    width:130px;
-}
-
-.task-table th:nth-child(7),
-.task-table td:nth-child(7){
-    width:220px;
-}
-
-.task-table th:nth-child(8),
-.task-table td:nth-child(8){
-    width:210px;
-}
-
 .task-checkbox-label{
     display:flex;
     justify-content:center;
     align-items:center;
     cursor:pointer;
 }
+/* =========================
+   Task Table Column Widths
+========================= */
 
+.task-table-scroll {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding-bottom: 14px;
+}
+
+.task-table {
+    width: 1700px;
+    min-width: 1700px;
+    table-layout: fixed;
+    border-collapse: collapse;
+    margin-top: 20px;
+    background: #fff;
+}
+
+.task-table th,
+.task-table td {
+    box-sizing:border-box;
+    padding-left:10px;
+    padding-right:10px;
+    vertical-align:middle;
+}
+
+/* 1 - Done */
+.task-table th:nth-child(1),
+.task-table td:nth-child(1) {
+    width:60px;
+    text-align:center;
+}
+
+/* 2 - Date */
+.task-table th:nth-child(2),
+.task-table td:nth-child(2) {
+    width:105px;
+}
+
+/* 3 - Task */
+.task-table th:nth-child(3),
+.task-table td:nth-child(3) {
+    width:220px;
+    overflow-wrap:anywhere;
+}
+
+/* 4 - Designation */
+.task-table th:nth-child(4),
+.task-table td:nth-child(4) {
+    width:150px;
+    overflow-wrap:anywhere;
+}
+
+/* 5 - Also Assigned To */
+.task-table th:nth-child(5),
+.task-table td:nth-child(5) {
+    width:200px;
+    overflow-wrap:anywhere;
+    line-height:1.4;
+}
+
+/* 6 - Status */
+.task-table th:nth-child(6),
+.task-table td:nth-child(6) {
+    width:110px;
+}
+
+/* 7 - Due Date */
+.task-table th:nth-child(7),
+.task-table td:nth-child(7) {
+    width:125px;
+}
+
+/* 8 - Remarks */
+.task-table th:nth-child(8),
+.task-table td:nth-child(8) {
+    width:180px;
+    overflow-wrap:anywhere;
+}
+
+/* 9 - Attachment */
+.task-table th:nth-child(9),
+.task-table td:nth-child(9) {
+    width:110px;
+    text-align:center;
+    white-space:nowrap;
+}
+
+/* 10 - Action */
+.task-table th:nth-child(10),
+.task-table td:nth-child(10) {
+    width:240px;
+    text-align:center;
+    white-space:nowrap;
+}
+
+.task-table td.action-buttons {
+    display:table-cell;
+    vertical-align:middle;
+    text-align:left;
+    white-space:nowrap;
+}
+
+.task-table td.action-buttons > * {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    vertical-align:middle;
+    margin-right:6px;
+}
+
+.task-table td.action-buttons > *:last-child {
+    margin-right:0;
+}
+
+/* Action buttons stay inside Action column */
+.task-table td.action-buttons {
+    display:table-cell;
+    vertical-align:middle;
+    text-align:left;
+    white-space:nowrap;
+}
+
+.task-table td.action-buttons > * {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    vertical-align:middle;
+    margin-right:8px;
+    flex-shrink:0;
+}
+
+.task-table td.action-buttons > *:last-child {
+    margin-right:0;
+}
+
+.task-table .view-btn,
+.task-table .edit-btn,
+.task-table .delete-btn,
+.task-table .status-toggle-btn {
+    width:auto;
+    min-width:72px;
+}
 .task-checkbox{
     width:20px !important;
     height:20px !important;

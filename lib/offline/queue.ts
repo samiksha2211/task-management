@@ -5,8 +5,12 @@ export type PendingTaskCreate = {
   date: string;
   dueDate: string;
 
-  officerId: string;
+  // Primary officer
   designation: string;
+
+  // Additional officers are stored by designation while offline.
+  // Their database IDs will be resolved when sync runs.
+  additionalDesignations: string[];
 
   status: "Pending" | "Completed";
   createdAt: string;
@@ -19,6 +23,7 @@ export type PendingTaskInput = Omit<
   "clientRequestId" | "createdAt" | "syncState"
 > & {
   clientRequestId?: string;
+  additionalDesignations?: string[];
 };
 
 const DB_NAME = "railwork-offline-v2";
@@ -33,14 +38,24 @@ function openDb(): Promise<IDBDatabase> {
     }
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
+
     request.onupgradeneeded = () => {
       const db = request.result;
+
       if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "clientRequestId" });
+        db.createObjectStore(STORE, {
+          keyPath: "clientRequestId",
+        });
       }
     };
+
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("Failed to open offline store"));
+
+    request.onerror = () =>
+      reject(
+        request.error ??
+          new Error("Failed to open offline store")
+      );
   });
 }
 
@@ -49,6 +64,7 @@ async function withStore<T>(
   fn: (store: IDBObjectStore) => IDBRequest<T> | Promise<T>
 ): Promise<T> {
   const db = await openDb();
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, mode);
     const store = tx.objectStore(STORE);
@@ -56,28 +72,49 @@ async function withStore<T>(
 
     if (result instanceof Promise) {
       result.then(resolve).catch(reject);
+
       tx.oncomplete = () => db.close();
+
       tx.onerror = () => {
         db.close();
-        reject(tx.error ?? new Error("Offline store transaction failed"));
+        reject(
+          tx.error ??
+            new Error("Offline store transaction failed")
+        );
       };
+
       return;
     }
 
-    result.onsuccess = () => resolve(result.result as T);
-    result.onerror = () => reject(result.error ?? new Error("Offline store operation failed"));
+    result.onsuccess = () =>
+      resolve(result.result as T);
+
+    result.onerror = () =>
+      reject(
+        result.error ??
+          new Error("Offline store operation failed")
+      );
+
     tx.oncomplete = () => db.close();
+
     tx.onerror = () => {
       db.close();
-      reject(tx.error ?? new Error("Offline store transaction failed"));
+
+      reject(
+        tx.error ??
+          new Error("Offline store transaction failed")
+      );
     };
   });
 }
 
 const queueListeners = new Set<() => void>();
 
-export function onOfflineQueueChange(listener: () => void): () => void {
+export function onOfflineQueueChange(
+  listener: () => void
+): () => void {
   queueListeners.add(listener);
+
   return () => queueListeners.delete(listener);
 }
 
@@ -86,50 +123,95 @@ function emitQueueChange(): void {
     try {
       listener();
     } catch {
-      // keep other listeners alive
+      // Keep other listeners alive
     }
   }
 }
 
-export async function listPendingTasks(): Promise<PendingTaskCreate[]> {
+export async function listPendingTasks(): Promise<
+  PendingTaskCreate[]
+> {
   try {
-    const rows = await withStore("readonly", (store) => store.getAll());
-    return (rows as PendingTaskCreate[]).sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    const rows = await withStore(
+      "readonly",
+      (store) => store.getAll()
     );
+
+    return (rows as PendingTaskCreate[])
+      .map((row) => ({
+        ...row,
+
+        // Backward compatibility for tasks already stored
+        // before additional assignees were introduced.
+        additionalDesignations:
+          row.additionalDesignations ?? [],
+      }))
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() -
+          new Date(b.createdAt).getTime()
+      );
   } catch {
     return [];
   }
 }
 
 export async function enqueueTaskCreate(
-  officerId: input.officerId,
   input: PendingTaskInput
 ): Promise<PendingTaskCreate> {
   const item: PendingTaskCreate = {
-    clientRequestId: input.clientRequestId ?? crypto.randomUUID(),
+    clientRequestId:
+      input.clientRequestId ?? crypto.randomUUID(),
+
     title: input.title,
     description: input.description,
     date: input.date,
     dueDate: input.dueDate,
+
     designation: input.designation,
+
+    additionalDesignations:
+      input.additionalDesignations ?? [],
+
     status: input.status,
+
     createdAt: new Date().toISOString(),
+
     syncState: "pending",
   };
 
-  await withStore("readwrite", (store) => store.put(item));
+  await withStore(
+    "readwrite",
+    (store) => store.put(item)
+  );
+
   emitQueueChange();
+
   return item;
 }
 
-export async function markTaskSyncing(clientRequestId: string): Promise<void> {
+export async function markTaskSyncing(
+  clientRequestId: string
+): Promise<void> {
   const rows = await listPendingTasks();
-  const item = rows.find((row) => row.clientRequestId === clientRequestId);
-  if (!item) return;
-  await withStore("readwrite", (store) =>
-    store.put({ ...item, syncState: "syncing", lastError: undefined })
+
+  const item = rows.find(
+    (row) =>
+      row.clientRequestId === clientRequestId
   );
+
+  if (!item) return;
+
+  await withStore(
+    "readwrite",
+    (store) =>
+      store.put({
+        ...item,
+        syncState: "syncing",
+        lastError: undefined,
+      })
+  );
+
   emitQueueChange();
 }
 
@@ -138,16 +220,35 @@ export async function markTaskFailed(
   message: string
 ): Promise<void> {
   const rows = await listPendingTasks();
-  const item = rows.find((row) => row.clientRequestId === clientRequestId);
-  if (!item) return;
-  await withStore("readwrite", (store) =>
-    store.put({ ...item, syncState: "failed", lastError: message })
+
+  const item = rows.find(
+    (row) =>
+      row.clientRequestId === clientRequestId
   );
+
+  if (!item) return;
+
+  await withStore(
+    "readwrite",
+    (store) =>
+      store.put({
+        ...item,
+        syncState: "failed",
+        lastError: message,
+      })
+  );
+
   emitQueueChange();
 }
 
-export async function removePendingTask(clientRequestId: string): Promise<void> {
-  await withStore("readwrite", (store) => store.delete(clientRequestId));
+export async function removePendingTask(
+  clientRequestId: string
+): Promise<void> {
+  await withStore(
+    "readwrite",
+    (store) => store.delete(clientRequestId)
+  );
+
   emitQueueChange();
 }
 

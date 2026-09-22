@@ -39,7 +39,8 @@ export default function TaskTable({
   const [search, setSearch] = useState(initialSearch);
   const [status, setStatus] = useState(initialStatus);
   const [date, setDate] = useState("");
-  const [designation, setDesignation] = useState("all");
+  const [selectedDesignations, setSelectedDesignations] = useState<string[]>([]);
+  const [designationFilterOpen, setDesignationFilterOpen] = useState(false);
   const [sortDate, setSortDate] = useState<"desc" | "asc">("desc");
   const [downloading, setDownloading] = useState(false);
 
@@ -135,12 +136,26 @@ export default function TaskTable({
   }, [tasks, pendingTasks, search]);
 
   const designations = useMemo(() => {
-    const set = new Set<string>(DESIGNATIONS);
-    for (const t of allTasks) {
-      if (t.officer?.designation) set.add(t.officer.designation);
+  const set = new Set<string>(DESIGNATIONS);
+
+  for (const t of allTasks) {
+    // Primary designation
+    if (t.officer?.designation) {
+      set.add(t.officer.designation);
     }
-    return [...set].sort((a, b) => a.localeCompare(b));
-  }, [allTasks]);
+
+    // Additional designations
+    for (const additional of t.additionalAssignees ?? []) {
+      if (additional.designation) {
+        set.add(additional.designation);
+      }
+    }
+  }
+
+  return [...set].sort((a, b) =>
+    a.localeCompare(b)
+  );
+}, [allTasks]);
 
   // Single dataset that drives both the rendered table and the exports, so the
   // downloaded PDF/CSV always contains exactly the rows the user sees. Search
@@ -157,9 +172,23 @@ export default function TaskTable({
         if (task.status !== "Completed") return false;
       }
       if (date && toLocalDateKey(task.date) !== date) return false;
-      if (designation !== "all" && task.officer?.designation !== designation) {
-        return false;
-      }
+      if (selectedDesignations.length > 0) {
+  const taskDesignations = [
+    task.officer?.designation,
+    ...(task.additionalAssignees ?? []).map(
+      (officer) => officer.designation
+    ),
+  ].filter(Boolean) as string[];
+
+  const matchesDesignation =
+    selectedDesignations.some((selected) =>
+      taskDesignations.includes(selected)
+    );
+
+  if (!matchesDesignation) {
+    return false;
+  }
+  }
       return true;
     })
     .sort((a, b) => {
@@ -188,7 +217,94 @@ export default function TaskTable({
       setDownloading(false);
     }
   };
+<div
+  className="designation-multi-filter"
+  style={{ position: "relative" }}
+>
+  <button
+  type="button"
+  className="designation-filter-button"
+  onClick={() =>
+    setDesignationFilterOpen((prev) => !prev)
+  }
+  aria-label="Filter by designation"
+>
+  <span className="designation-filter-text">
+    {selectedDesignations.length === 0
+      ? "All Designations"
+      : selectedDesignations.length === 1
+        ? selectedDesignations[0]
+        : `${selectedDesignations.length} Designations`}
+  </span>
 
+  <span className="designation-filter-arrow">
+    {designationFilterOpen ? "▲" : "▼"}
+  </span>
+</button>
+
+  {designationFilterOpen && (
+    <div
+      style={{
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        zIndex: 1000,
+        minWidth: "240px",
+        maxHeight: "300px",
+        overflowY: "auto",
+        background: "white",
+        border: "1px solid #ddd",
+        borderRadius: "6px",
+        padding: "8px",
+        boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
+      }}
+    >
+      {selectedDesignations.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setSelectedDesignations([])}
+          style={{
+            width: "100%",
+            marginBottom: "6px",
+            padding: "6px",
+            cursor: "pointer",
+          }}
+        >
+          Clear All
+        </button>
+      )}
+
+      {designations.map((d) => (
+        <label
+          key={d}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "6px",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={selectedDesignations.includes(d)}
+            onChange={() => {
+  setSelectedDesignations((current) =>
+    current.includes(d)
+      ? current.filter((item) => item !== d)
+      : [...current, d]
+  );
+
+  setDesignationFilterOpen(false);
+}}
+          />
+
+          <span>{d}</span>
+        </label>
+      ))}
+    </div>
+  )}
+</div>
   return (
     <div>
       <div className="task-toolbar">
@@ -208,17 +324,85 @@ export default function TaskTable({
             <option key={d} value={d}>{d}</option>
           ))}
         </select>
-        <select
-          className="designation-filter"
-          value={designation}
-          onChange={(e) => setDesignation(e.target.value)}
-          aria-label="Filter by designation"
+        <div
+  className="designation-multi-filter"
+  style={{ position: "relative" }}
+>
+  <button
+    type="button"
+    className="designation-filter-button"
+    onClick={() =>
+      setDesignationFilterOpen((prev) => !prev)
+    }
+  >
+    {selectedDesignations.length === 0
+      ? "All Designations"
+      : `${selectedDesignations.length} selected`}
+
+    <span style={{ marginLeft: "8px" }}>▼</span>
+  </button>
+
+  {designationFilterOpen && (
+    <div
+      style={{
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        zIndex: 1000,
+        minWidth: "240px",
+        maxHeight: "300px",
+        overflowY: "auto",
+        background: "white",
+        border: "1px solid #ddd",
+        borderRadius: "6px",
+        padding: "8px",
+        boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
+      }}
+    >
+      {selectedDesignations.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setSelectedDesignations([])}
+          style={{
+            width: "100%",
+            marginBottom: "6px",
+            padding: "6px",
+            cursor: "pointer",
+          }}
         >
-          <option value="all">All Designations</option>
-          {designations.map((d) => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-        </select>
+          Clear All
+        </button>
+      )}
+
+      {designations.map((d) => (
+        <label
+          key={d}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "6px",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={selectedDesignations.includes(d)}
+            onChange={() => {
+              setSelectedDesignations((current) =>
+                current.includes(d)
+                  ? current.filter((item) => item !== d)
+                  : [...current, d]
+              );
+            }}
+          />
+
+          <span>{d}</span>
+        </label>
+      ))}
+    </div>
+  )}
+</div>
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="all">All Statuses</option>
           <option value="pending">Pending</option>
@@ -259,6 +443,7 @@ export default function TaskTable({
               <th>Date</th>
               <th>Task</th>
               <th>Designation</th>
+              <th>Also Assigned To</th>
               <th>Status</th>
               <th>Due Date</th>
               <th>Remarks</th>
@@ -307,6 +492,13 @@ export default function TaskTable({
                 <td>
                   {task.officer.designation}
                 </td>
+                <td>
+               {(task.additionalAssignees ?? []).length > 0
+               ? task.additionalAssignees
+              .map((officer) => officer.designation)
+              .join(", ")
+                 : "-"}
+              </td>
                 <td>
                   <span className={`status ${task.status.toLowerCase()}`}>
                     {task.status}
@@ -377,7 +569,7 @@ export default function TaskTable({
 
             {filteredTasks.length === 0 && (
               <tr>
-                <td colSpan={8} className="empty-state">
+                <td colSpan={10} className="empty-state">
                   No tasks found.
                 </td>
               </tr>

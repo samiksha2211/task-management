@@ -5,6 +5,14 @@ import type { AuthRequest } from "../middleware/auth";
 import { prisma } from "../prisma";
 
 const activeWhere: Prisma.TaskWhereInput = { deletedAt: null };
+const taskInclude = {
+  officer: true,
+  additionalAssignees: {
+    include: {
+      officer: true,
+    },
+  },
+} satisfies Prisma.TaskInclude;
 
 export async function stats(_req: AuthRequest, res: Response): Promise<void> {
   const today = todayUTCStart();
@@ -25,12 +33,12 @@ export async function stats(_req: AuthRequest, res: Response): Promise<void> {
         status: "PENDING",
         dueDate: { gte: today, lt: tomorrow },
       },
-      include: { officer: true },
+      include: taskInclude,
       orderBy: { dueDate: "asc" },
     }),
     prisma.task.findMany({
       where: activeWhere,
-      include: { officer: true },
+      include: taskInclude,
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
@@ -100,7 +108,7 @@ export async function notifications(req: AuthRequest, res: Response): Promise<vo
         status: "PENDING",
         dueDate: { lt: today },
       },
-      include: { officer: true },
+      include: taskInclude,
       orderBy: { dueDate: "asc" },
       take: 5,
     }),
@@ -110,13 +118,13 @@ export async function notifications(req: AuthRequest, res: Response): Promise<vo
         status: "PENDING",
         dueDate: { gte: today, lt: tomorrow },
       },
-      include: { officer: true },
+      include: taskInclude,
       orderBy: { dueDate: "asc" },
       take: 5,
     }),
     prisma.task.findMany({
       where: activeWhere,
-      include: { officer: true },
+      include: taskInclude,
       orderBy: { createdAt: "desc" },
       take: 5,
     }),

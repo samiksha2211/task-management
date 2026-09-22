@@ -78,41 +78,74 @@ export async function syncPendingTasks(): Promise<SyncResult> {
     for (const item of pending) {
       await markTaskSyncing(item.clientRequestId);
 
-      try {
-        // Find existing officer by designation
-        // or create officer record if required.
-        const officerData = await apiFetch<{
-          user: {
+      
+  try {
+  // 1. Resolve primary officer
+    const officerData = await apiFetch<{
+    user: {
+      id: string;
+      };
+    }>("/api/users/ensure-by-designation", {
+    method: "POST",
+    body: JSON.stringify({
+      designation: item.designation,
+    }),
+    });
+
+    // 2. Resolve all additional officers
+    const additionalOfficerData = await Promise.all(
+      (item.additionalDesignations ?? [])
+        .filter(
+          (designation) =>
+          designation !== item.designation
+        )
+        .map((designation) =>
+          apiFetch<{
+            user: {
             id: string;
           };
-        }>("/api/users/ensure-by-designation", {
-          method: "POST",
-          body: JSON.stringify({
-            designation: item.designation,
+          }>("/api/users/ensure-by-designation", {
+            method: "POST",
+            body: JSON.stringify({
+            designation,
           }),
-        });
+        })
+      )
+  );
 
-        // Create task in server database
-        await apiFetch("/api/tasks", {
-          method: "POST",
-          body: JSON.stringify({
-            title: item.title,
-            description: item.description,
-            date: item.date,
-            dueDate: item.dueDate,
-            remarks: null,
-            officerId: officerData.user.id,
-            status: item.status,
-            clientRequestId: item.clientRequestId,
-          }),
-        });
+      // 3. Get their database IDs
+      const additionalOfficerIds =
+      additionalOfficerData.map(
+      (result) => result.user.id
+      );
 
-        // Successfully synced, remove local copy
-        await removePendingTask(item.clientRequestId);
+      // 4. Create task in server database
+      await apiFetch("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+      title: item.title,
+      description: item.description,
+      date: item.date,
+      dueDate: item.dueDate,
+      remarks: null,
 
-        synced += 1;
-      } catch (error) {
-        const message =
+      officerId: officerData.user.id,
+      additionalOfficerIds,
+
+      status: item.status,
+      clientRequestId: item.clientRequestId,
+      }),
+    });
+
+    // 5. Successfully synced - remove local copy
+    await removePendingTask(
+    item.clientRequestId
+    );
+
+  synced += 1;
+}
+         catch (error) {
+          const message =
           error instanceof Error
             ? error.message
             : "Failed to sync task";
