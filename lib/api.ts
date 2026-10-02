@@ -4,6 +4,8 @@ export type ApiTask = {
   description: string | null;
   date: string;
   dueDate: string;
+  actionPlan: string | null;
+  actionPlanTdc: string | null;
   remarks: string | null;
 
   attachmentUrl: string | null;
@@ -26,6 +28,27 @@ export type ApiTask = {
   designation: string;
   email: string;
 }[];
+officerUpdates: {
+  id: string;
+  actionPlan: string | null;
+  remark: string | null;
+
+  attachmentUrl: string | null;
+  attachmentName: string | null;
+  attachmentType: string | null;
+
+  createdAt: string;
+  updatedAt: string;
+
+  officer: {
+    id: string;
+    name: string;
+    designation: string;
+    email: string;
+  };
+}[];
+
+
   offlinePending?: boolean;
   clientRequestId?: string;
   syncState?: "pending" | "syncing" | "failed";

@@ -89,6 +89,23 @@ router.post(
   }
 );
 router.post("/tasks", requireAuth, requireAdmin, tasks.createTask);
+router.post(
+  "/tasks/:id/officer-updates",
+  requireAuth,
+  tasks.createOfficerUpdate
+);
+router.put(
+  "/tasks/:id/officer-updates/:updateId",
+  requireAuth,
+  requireAdmin,
+  tasks.updateOfficerUpdate
+);
+router.delete(
+  "/tasks/:id/officer-updates/:updateId",
+  requireAuth,
+  requireAdmin,
+  tasks.deleteOfficerUpdate
+);
 router.get("/tasks/:id", requireAuth, tasks.getTask);
 router.put("/tasks/:id", requireAuth, requireAdmin, tasks.updateTask);
 router.patch("/tasks/:id/status", requireAuth, tasks.updateTaskStatus);

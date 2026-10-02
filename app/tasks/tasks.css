@@ -363,8 +363,8 @@
 }
 
 .task-table {
-    width: 1700px;
-    min-width: 1700px;
+    width: 2200px;
+    min-width: 2200px;
     table-layout: fixed;
     border-collapse: collapse;
     margin-top: 20px;
@@ -374,9 +374,12 @@
 .task-table th,
 .task-table td {
     box-sizing:border-box;
-    padding-left:10px;
-    padding-right:10px;
+    padding-left:12px;
+    padding-right:12px;
     vertical-align:middle;
+}
+.task-table th {
+    white-space: nowrap;
 }
 
 /* 1 - Done */
@@ -389,59 +392,78 @@
 /* 2 - Date */
 .task-table th:nth-child(2),
 .task-table td:nth-child(2) {
-    width:105px;
+    width:115px;
 }
 
 /* 3 - Task */
 .task-table th:nth-child(3),
 .task-table td:nth-child(3) {
-    width:220px;
+    width:270px;
     overflow-wrap:anywhere;
 }
 
 /* 4 - Designation */
 .task-table th:nth-child(4),
 .task-table td:nth-child(4) {
-    width:150px;
+    width:170px;
     overflow-wrap:anywhere;
 }
 
 /* 5 - Also Assigned To */
 .task-table th:nth-child(5),
 .task-table td:nth-child(5) {
-    width:200px;
+    width:210px;
     overflow-wrap:anywhere;
     line-height:1.4;
 }
-
-/* 6 - Status */
+/* 6 - Action Plan */
 .task-table th:nth-child(6),
 .task-table td:nth-child(6) {
-    width:110px;
+    width: 230px;
+    overflow-wrap: anywhere;
 }
 
-/* 7 - Due Date */
+/* 7 - Action Plan TDC */
 .task-table th:nth-child(7),
 .task-table td:nth-child(7) {
-    width:125px;
+    width: 155px;
+}
+/* 8 - Execution Date */
+.task-table th:nth-child(7),
+.task-table td:nth-child(7) {
+    width:145px;
 }
 
-/* 8 - Remarks */
+/* 9 - Status */
+.task-table th:nth-child(6),
+.task-table td:nth-child(6) {
+    width:120px;
+}
+
+
+
+/* 10 - DRM Remarks */
 .task-table th:nth-child(8),
 .task-table td:nth-child(8) {
-    width:180px;
+    width:230px;
     overflow-wrap:anywhere;
 }
 
-/* 9 - Attachment */
+/* 11 - DRM Attachment */
 .task-table th:nth-child(9),
 .task-table td:nth-child(9) {
-    width:110px;
+    width:150px;
     text-align:center;
     white-space:nowrap;
 }
+/* 12 - BO Update */
+.task-table th:nth-child(12),
+.task-table td:nth-child(12) {
+    width: 230px;
+    overflow-wrap: anywhere;
+}
 
-/* 10 - Action */
+/* 13 - Action */
 .task-table th:nth-child(10),
 .task-table td:nth-child(10) {
     width:240px;

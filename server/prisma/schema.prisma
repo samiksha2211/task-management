@@ -25,31 +25,41 @@ model User {
   notifications             Notification[]
   tasks                     Task[]
   additionalTaskAssignments TaskAdditionalAssignee[]
+  taskOfficerUpdates        TaskOfficerUpdate[]
 
   @@index([designation])
 }
 
 model Task {
-  id              String     @id @default(cuid())
-  title           String
-  description     String?
-  date            DateTime
-  dueDate         DateTime
-  remarks         String?
-  status          TaskStatus @default(PENDING)
-  deletedAt       DateTime?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  date        DateTime
+
+  dueDate DateTime
+
+  remarks        String?
+  attachmentUrl  String?
+  attachmentName String?
+  attachmentType String?
+
   officerId       String
   priority        String?
-  clientRequestId String?    @unique
-  attachmentUrl   String?
-  attachmentName  String?
-  attachmentType  String?
+  clientRequestId String? @unique
+
+  // Action plan
+  actionPlan    String?
+  actionPlanTdc DateTime?
+
+  status    TaskStatus @default(PENDING)
+  deletedAt DateTime?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   notifications       Notification[]
   officer             User                     @relation(fields: [officerId], references: [id])
   additionalAssignees TaskAdditionalAssignee[]
+  officerUpdates      TaskOfficerUpdate[]
 
   @@index([status])
   @@index([officerId])
@@ -67,6 +77,25 @@ model TaskAdditionalAssignee {
   officer User @relation(fields: [officerId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, officerId])
+  @@index([taskId])
+  @@index([officerId])
+}
+
+model TaskOfficerUpdate {
+  id             String   @id @default(cuid())
+  taskId         String
+  officerId      String
+  actionPlan     String?
+  remark         String?
+  attachmentUrl  String?
+  attachmentName String?
+  attachmentType String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  task    Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  officer User @relation(fields: [officerId], references: [id], onDelete: Cascade)
+
   @@index([taskId])
   @@index([officerId])
 }

@@ -27,6 +27,8 @@ const taskFields = {
   description: z.string().optional().nullable(),
   date: z.coerce.date(),
   dueDate: z.coerce.date(),
+  actionPlan: z.string().optional().nullable(),
+  actionPlanTdc: z.coerce.date().optional().nullable(),
   remarks: z.string().optional().nullable(),
   officerId: z.string().min(1),
   additionalOfficerIds: z.array(z.string().min(1)).optional().default([]),
@@ -43,6 +45,14 @@ const createSchema = z.object({
   clientRequestId: z.string().uuid().optional(),
 });
 const updateSchema = z.object(taskFields).partial();
+const officerUpdateSchema = z.object({
+  actionPlan: z.string().trim().optional().nullable(),
+  remark: z.string().trim().optional().nullable(),
+
+  attachmentUrl: z.string().optional().nullable(),
+  attachmentName: z.string().optional().nullable(),
+  attachmentType: z.string().optional().nullable(),
+});
 const listQuerySchema = z.object({
   status: z.string().optional(),
   officerId: z.string().optional(),
@@ -69,11 +79,21 @@ const activeWhere: Prisma.TaskWhereInput = { deletedAt: null };
 
 const taskInclude = {
   officer: true,
+
   additionalAssignees: {
     include: {
-    officer: true,
+      officer: true,
+    },
   },
-},
+
+  officerUpdates: {
+    include: {
+      officer: true,
+    },
+    orderBy: {
+      createdAt: "desc" as const,
+    },
+  },
 } satisfies Prisma.TaskInclude;
 
 function statusFilterToWhere(status?: string): Prisma.TaskWhereInput {
@@ -272,6 +292,8 @@ try {
       title: body.title,
       description: body.description ?? null,
       date: body.date,
+      actionPlan: body.actionPlan ?? null,
+      actionPlanTdc: body.actionPlanTdc ?? null,
       dueDate: body.dueDate,
       remarks: body.remarks ?? null,
       officerId: body.officerId,
@@ -381,7 +403,22 @@ export async function updateTask(req: AuthRequest, res: Response): Promise<void>
 }
   if (body.title !== undefined) data.title = body.title;
   if (body.description !== undefined) data.description = body.description;
+  if (body.actionPlan !== undefined) data.actionPlan = body.actionPlan;
+
+  if (body.actionPlanTdc !== undefined)data.actionPlanTdc = body.actionPlanTdc;
+
   if (body.remarks !== undefined) data.remarks = body.remarks;
+  if (body.attachmentUrl !== undefined) {
+  data.attachmentUrl = body.attachmentUrl || null;
+}
+
+if (body.attachmentName !== undefined) {
+  data.attachmentName = body.attachmentName || null;
+}
+
+if (body.attachmentType !== undefined) {
+  data.attachmentType = body.attachmentType || null;
+}
   if (body.date !== undefined) data.date = body.date;
   if (body.dueDate !== undefined) data.dueDate = body.dueDate;
   if (body.status !== undefined) data.status = normalizeStatus(body.status);
@@ -397,7 +434,217 @@ export async function updateTask(req: AuthRequest, res: Response): Promise<void>
   res.json({ task: serializeTask(task) });
   broadcast("task:updated", { id: task.id });
 }
+export async function createOfficerUpdate(
+  req: AuthRequest,
+  res: Response
+): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
 
+  const taskId = param(req, "id");
+  const body = validate(officerUpdateSchema, req.body);
+
+  // At least one BO field must contain something
+  if (
+    !body.actionPlan?.trim() &&
+    !body.remark?.trim() &&
+    !body.attachmentUrl
+  ) {
+    res.status(400).json({
+      error: "Please enter an Action Plan, BO's Remark, or attachment.",
+    });
+    return;
+  }
+
+  const task = await prisma.task.findFirst({
+    where: {
+      id: taskId,
+      deletedAt: null,
+    },
+    include: {
+      additionalAssignees: true,
+    },
+  });
+
+  if (!task) {
+    res.status(404).json({ error: "Task not found" });
+    return;
+  }
+
+  // ADMIN can administratively add/update information.
+  // OFFICER must actually be assigned to the task.
+  if (req.user.role !== "ADMIN") {
+    const isCoordinator = task.officerId === req.user.id;
+
+    const isAdditionalOfficer = task.additionalAssignees.some(
+      (assignment) => assignment.officerId === req.user!.id
+    );
+
+    if (!isCoordinator && !isAdditionalOfficer) {
+      res.status(403).json({
+        error: "You are not assigned to this task.",
+      });
+      return;
+    }
+  }
+
+  const update = await prisma.taskOfficerUpdate.create({
+    data: {
+      taskId,
+      officerId: req.user.id,
+
+      actionPlan: body.actionPlan?.trim() || null,
+      remark: body.remark?.trim() || null,
+
+      attachmentUrl: body.attachmentUrl ?? null,
+      attachmentName: body.attachmentName ?? null,
+      attachmentType: body.attachmentType ?? null,
+    },
+    include: {
+      officer: true,
+    },
+  });
+
+  const updatedTask = await prisma.task.findUnique({
+    where: {
+      id: taskId,
+    },
+    include: taskInclude,
+  });
+
+  res.status(201).json({
+    update,
+    task: updatedTask ? serializeTask(updatedTask) : null,
+  });
+
+  broadcast("task:updated", { id: taskId });
+}
+export async function updateOfficerUpdate(
+  req: AuthRequest,
+  res: Response
+): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const taskId = param(req, "id");
+  const updateId = param(req, "updateId");
+
+  const body = validate(officerUpdateSchema, req.body);
+
+  // Make sure this BO update belongs to this task
+  const existingUpdate = await prisma.taskOfficerUpdate.findFirst({
+    where: {
+      id: updateId,
+      taskId,
+    },
+  });
+
+  if (!existingUpdate) {
+    res.status(404).json({
+      error: "BO update not found",
+    });
+    return;
+  }
+
+  // Update the same record - do not create duplicate
+  const update = await prisma.taskOfficerUpdate.update({
+    where: {
+      id: updateId,
+    },
+    data: {
+      ...(body.actionPlan !== undefined && {
+        actionPlan: body.actionPlan?.trim() || null,
+      }),
+
+      ...(body.remark !== undefined && {
+        remark: body.remark?.trim() || null,
+      }),
+
+      ...(body.attachmentUrl !== undefined && {
+        attachmentUrl: body.attachmentUrl,
+      }),
+
+      ...(body.attachmentName !== undefined && {
+        attachmentName: body.attachmentName,
+      }),
+
+      ...(body.attachmentType !== undefined && {
+        attachmentType: body.attachmentType,
+      }),
+    },
+    include: {
+      officer: true,
+    },
+  });
+
+  const updatedTask = await prisma.task.findUnique({
+    where: {
+      id: taskId,
+    },
+    include: taskInclude,
+  });
+
+  res.json({
+    update,
+    task: updatedTask
+      ? serializeTask(updatedTask)
+      : null,
+  });
+
+  broadcast("task:updated", { id: taskId });
+}
+export async function deleteOfficerUpdate(
+  req: AuthRequest,
+  res: Response
+): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const taskId = param(req, "id");
+  const updateId = param(req, "updateId");
+
+  const update = await prisma.taskOfficerUpdate.findFirst({
+    where: {
+      id: updateId,
+      taskId,
+    },
+  });
+
+  if (!update) {
+    res.status(404).json({
+      error: "BO update not found",
+    });
+    return;
+  }
+
+  await prisma.taskOfficerUpdate.delete({
+    where: {
+      id: updateId,
+    },
+  });
+
+  const updatedTask = await prisma.task.findUnique({
+    where: {
+      id: taskId,
+    },
+    include: taskInclude,
+  });
+
+  res.json({
+    success: true,
+    task: updatedTask
+      ? serializeTask(updatedTask)
+      : null,
+  });
+
+  broadcast("task:updated", { id: taskId });
+}
 export async function updateTaskStatus(req: AuthRequest, res: Response): Promise<void> {
   const body = validate(z.object({ status: statusInput }), req.body);
 

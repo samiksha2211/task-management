@@ -7,13 +7,22 @@ import { prisma } from "../prisma";
 const activeWhere: Prisma.TaskWhereInput = { deletedAt: null };
 const taskInclude = {
   officer: true,
+
   additionalAssignees: {
     include: {
       officer: true,
     },
   },
-} satisfies Prisma.TaskInclude;
 
+  officerUpdates: {
+    include: {
+      officer: true,
+    },
+    orderBy: {
+      createdAt: "desc" as const,
+    },
+  },
+} satisfies Prisma.TaskInclude;
 export async function stats(_req: AuthRequest, res: Response): Promise<void> {
   const today = todayUTCStart();
   const tomorrow = tomorrowUTCStart();
