@@ -8,7 +8,7 @@
     "api": {
       "root": "server/",
       "framework": "express",
-      "entrypoint": "src/index.js"
+      "entrypoint": "src/index.ts"
     }
   },
   "rewrites": [
