@@ -5,7 +5,7 @@
   "description": "RailWork task monitoring backend (Express + Prisma + PostgreSQL)",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+     "dev": " node -env-file=../.env --import tsx --watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
