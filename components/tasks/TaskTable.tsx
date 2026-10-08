@@ -8,7 +8,7 @@ import Link from "next/link";
 
 import { FaDownload } from "react-icons/fa";
 
-import { apiFetch, formatDate, getRole, type ApiTask } from "@/lib/api";
+import { apiFetch, fileUrl, formatDate, getRole, type ApiTask } from "@/lib/api";
 
 import { DESIGNATIONS } from "@/lib/designations";
 
@@ -1240,7 +1240,7 @@ const handleDeleteBoUpdate = async (
 
       <a
 
-        href={"http://localhost:4000" + task.attachmentUrl}
+        href={fileUrl(task.attachmentUrl)}
 
         target="_blank"
 
@@ -1360,7 +1360,7 @@ const handleDeleteBoUpdate = async (
               <>
                 {" "}
                 <a
-                  href={"http://localhost:4000" + update.attachmentUrl}
+                  href={fileUrl(update.attachmentUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

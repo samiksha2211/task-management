@@ -305,3 +305,9 @@ export async function resetPassword(
     body: JSON.stringify({ token, newPassword }),
   });
 }
+
+// Attachments are Vercel Blob URLs in production; older/local ones are
+// paths served by the local API server.
+export function fileUrl(url: string): string {
+  return /^https?:\/\//i.test(url) ? url : `http://localhost:4000${url}`;
+}

@@ -24,5 +24,11 @@
         "service": "web"
       }
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/task-reminders",
+      "schedule": "30 3 * * *"
+    }
   ]
 }

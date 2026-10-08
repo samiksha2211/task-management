@@ -8,26 +8,14 @@ import { requireAdmin, requireAuth } from "../middleware/auth";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { put } from "@vercel/blob";
+import { runTaskReminders } from "../jobs/taskReminder";
 
 const router = Router();
 const uploadDir = path.join(process.cwd(), "uploads");
 
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (_req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-    cb(null, `${Date.now()}-${safeName}`);
-  },
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
   },
@@ -45,6 +33,22 @@ const upload = multer({
       cb(new Error("Only PDF and image files are allowed."));
     }
   },
+});
+
+// Called daily by Vercel Cron (see vercel.json). Vercel sends
+// "Authorization: Bearer $CRON_SECRET" when CRON_SECRET is set.
+router.get("/cron/task-reminders", async (req, res, next) => {
+  if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    await runTaskReminders();
+    res.json({ status: "ok" });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.post("/auth/login", auth.login);
@@ -75,14 +79,37 @@ router.post(
   requireAuth,
   requireAdmin,
   upload.single("file"),
-  (req, res) => {
+  async (req, res, next) => {
     if (!req.file) {
       res.status(400).json({ error: "No file uploaded" });
       return;
     }
 
+    const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const filename = `${Date.now()}-${safeName}`;
+    let attachmentUrl: string;
+
+    try {
+      // On Vercel the filesystem is ephemeral, so store in Vercel Blob.
+      // Without a Blob token (local dev), keep writing to ./uploads.
+      if (process.env.BLOB_READ_WRITE_TOKEN) {
+        const blob = await put(`uploads/${filename}`, req.file.buffer, {
+          access: "public",
+          contentType: req.file.mimetype,
+        });
+        attachmentUrl = blob.url;
+      } else {
+        fs.mkdirSync(uploadDir, { recursive: true });
+        fs.writeFileSync(path.join(uploadDir, filename), req.file.buffer);
+        attachmentUrl = `/uploads/${filename}`;
+      }
+    } catch (error) {
+      next(error);
+      return;
+    }
+
     res.json({
-      attachmentUrl: `/uploads/${req.file.filename}`,
+      attachmentUrl,
       attachmentName: req.file.originalname,
       attachmentType: req.file.mimetype,
     });

@@ -32,4 +32,6 @@ const PORT = Number(process.env.PORT) || 4000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`RailWork API listening on port ${PORT}`);
 });
-startTaskReminderScheduler();
+if (!process.env.VERCEL) {
+  startTaskReminderScheduler();
+}

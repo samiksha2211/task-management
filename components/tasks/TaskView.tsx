@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiFetch, formatDate, getRole, type ApiTask } from "@/lib/api";
+import { apiFetch, fileUrl, formatDate, getRole, type ApiTask } from "@/lib/api";
 import { useRealtime } from "@/lib/realtime";
 
 export default function TaskView({ id }: { id?: string }) {
@@ -414,7 +414,7 @@ export default function TaskView({ id }: { id?: string }) {
                     <strong>Attachment:</strong>{" "}
 
                     <a
-                      href={`http://localhost:4000${update.attachmentUrl}`}
+                      href={fileUrl(update.attachmentUrl)}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
