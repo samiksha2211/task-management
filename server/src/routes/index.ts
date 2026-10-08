@@ -90,9 +90,10 @@ router.post(
     let attachmentUrl: string;
 
     try {
-      // On Vercel the filesystem is ephemeral, so store in Vercel Blob.
-      // Without a Blob token (local dev), keep writing to ./uploads.
-      if (process.env.BLOB_READ_WRITE_TOKEN) {
+      // On Vercel the filesystem is ephemeral, so store in Vercel Blob
+      // (token auth, or OIDC via BLOB_STORE_ID on newer Blob stores).
+      // Without Blob credentials (local dev), keep writing to ./uploads.
+      if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
         const blob = await put(`uploads/${filename}`, req.file.buffer, {
           access: "public",
           contentType: req.file.mimetype,
