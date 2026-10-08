@@ -1,34 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "services": {
-    "web": {
-      "root": "./",
-      "framework": "nextjs"
-    },
-    "api": {
-      "root": "server/",
-      "framework": "express",
-      "entrypoint": "src/index.ts"
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": {
-        "service": "api"
-      }
-    },
-    {
-      "source": "/(.*)",
-      "destination": {
-        "service": "web"
-      }
-    }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron/task-reminders",
-      "schedule": "30 3 * * *"
-    }
-  ]
+  "framework": "nextjs"
 }

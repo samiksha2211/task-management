@@ -96,6 +96,7 @@ router.post(
       if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
         const blob = await put(`uploads/${filename}`, req.file.buffer, {
           access: "public",
+          addRandomSuffix: true,
           contentType: req.file.mimetype,
         });
         attachmentUrl = blob.url;
