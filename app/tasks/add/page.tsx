@@ -36,6 +36,9 @@ export default function AddTaskPage() {
   const [dueDays, setDueDays] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
+  const [actionPlans, setActionPlans] = useState<string[]>([""]);
+  const [actionPlanTdc, setActionPlanTdc] = useState("");
+  const [remarks, setRemarks] = useState("");
   const [saving, setSaving] = useState(false);
   const [attachment, setAttachment] = useState<File | null>(null);
 
@@ -63,6 +66,21 @@ export default function AddTaskPage() {
         setDueDate(addDays(value, n));
       }
     }
+  };
+
+  const updateActionPlan = (index: number, value: string) => {
+    setActionPlans((prev) => prev.map((item, i) => (i === index ? value : item)));
+  };
+
+  const addActionPlan = () => {
+    setActionPlans((prev) => [...prev, ""]);
+  };
+
+  const removeActionPlan = (index: number) => {
+    setActionPlans((prev) => {
+      const updated = prev.filter((_, i) => i !== index);
+      return updated.length ? updated : [""];
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -158,7 +176,10 @@ const additionalOfficerIds = additionalOfficerData.map(
           description: payload.description,
           date: payload.date,
           dueDate: payload.dueDate,
-          remarks: null,
+          actionPlan:
+            actionPlans.map((plan) => plan.trim()).filter(Boolean).join("\n") || null,
+          actionPlanTdc: actionPlanTdc || null,
+          remarks: remarks || null,
           officerId: officerData.user.id,
           additionalOfficerIds,
           status: payload.status,
@@ -237,6 +258,18 @@ const additionalOfficerIds = additionalOfficerData.map(
               </div>
 
               <div className="form-group">
+                <label>Also Assigned To</label>
+                <MultiDesignationSelect
+                  value={additionalDesignations}
+                  onChange={setAdditionalDesignations}
+                  exclude={designation}
+                />
+                <span className="form-hint">
+                  Optional. Select one or more additional officers.
+                </span>
+              </div>
+
+              <div className="form-group">
                 <label>Status</label>
                 <select
                   value={status}
@@ -262,7 +295,7 @@ const additionalOfficerIds = additionalOfficerData.map(
               </div>
 
               <div className="form-group">
-                <label>Due Date (Manual)</label>
+                <label>Execution TDC (Manual)</label>
                 <input
                   type="date"
                   value={dueDate}
@@ -275,20 +308,64 @@ const additionalOfficerIds = additionalOfficerData.map(
                   Optional. Picking a date manually overrides the days calculation.
                 </span>
               </div>
-              <div className="form-group">
-             <label>Attachment</label>
-              <input
-                type="file"
-                accept=".pdf,image/*"
-                onChange={(e) => {
-                const file = e.target.files?.[0] ?? null;
-                setAttachment(file);
-              }}
-             />
 
-            <span className="form-hint">
-             PDF or image only.
-              </span>
+              <div className="form-group">
+                <label>Action Plan</label>
+                {actionPlans.map((plan, index) => (
+                  <div key={index} className="array-field-row">
+                    <textarea
+                      rows={3}
+                      placeholder={`Action Plan ${index + 1}`}
+                      value={plan}
+                      onChange={(e) => updateActionPlan(index, e.target.value)}
+                    />
+                    {actionPlans.length > 1 && (
+                      <button type="button" onClick={() => removeActionPlan(index)}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" onClick={addActionPlan}>
+                  + Add Action Plan
+                </button>
+              </div>
+
+              <div className="form-group">
+                <label>Action Plan TDC</label>
+                <input
+                  type="date"
+                  value={actionPlanTdc}
+                  onChange={(e) => setActionPlanTdc(e.target.value)}
+                />
+                <span className="form-hint">
+                  Action Plan TDC is decided by DRM.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label>DRM Remarks</label>
+                <textarea
+                  rows={3}
+                  placeholder="Enter remarks..."
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Attachment</label>
+                <input
+                  type="file"
+                  accept=".pdf,image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    setAttachment(file);
+                  }}
+                />
+                <span className="form-hint">
+                  PDF or image only.
+                </span>
               </div>
 
               <div className="form-group">
@@ -299,19 +376,6 @@ const additionalOfficerIds = additionalOfficerData.map(
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
-              </div>
-              <div className="form-group">
-             <label>Also Assigned To</label>
-
-            <MultiDesignationSelect
-            value={additionalDesignations}
-            onChange={setAdditionalDesignations}
-             exclude={designation}
-              />
-
-            <span className="form-hint">
-             Optional. Select one or more additional officers.
-             </span>
               </div>
 
               <div className="button-group">

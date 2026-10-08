@@ -243,6 +243,36 @@ html:not([data-theme="dark"]) body .form-group select {
   background-color: #fff;
 }
 
+/* "Also Assigned To" picker: a global button style made its text white on
+   its white background, so the selection and placeholder were invisible. */
+html body .multi-designation-button,
+html body .multi-designation-button:hover,
+html body .multi-designation-button:focus {
+  color: #111827;
+  background: #fff;
+}
+
+html body .multi-designation-dropdown {
+  color: #111827;
+}
+
+/* Form styles stretched each checkbox to full width, pushing the
+   designation names to the far right. Keep checkbox + name together. */
+html body .multi-designation-option {
+  justify-content: flex-start;
+  text-align: left;
+  font-weight: 500;
+  color: #111827;
+}
+
+html body .form-group .multi-designation-option input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+}
+
 /* ---------- Mobile ---------- */
 
 @media (max-width: 768px) {

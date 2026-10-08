@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, getRole, type ApiTask } from "@/lib/api";
+import { apiFetch, fileUrl, getRole, type ApiTask } from "@/lib/api";
 import DesignationAutocomplete from "@/components/DesignationAutocomplete";
+import MultiDesignationSelect from "@/components/MultiDesignationSelect";
 
 export default function TaskEditForm({ id }: { id?: string }) {
   const router = useRouter();
@@ -15,6 +16,9 @@ export default function TaskEditForm({ id }: { id?: string }) {
   const [date, setDate] = useState("");
   const [taskName, setTaskName] = useState("");
   const [designation, setDesignation] = useState("");
+  const [additionalDesignations, setAdditionalDesignations] = useState<string[]>([]);
+  const [currentAttachment, setCurrentAttachment] = useState<{ url: string; name: string } | null>(null);
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [status, setStatus] = useState("Pending");
   const [dueDays, setDueDays] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -45,6 +49,14 @@ export default function TaskEditForm({ id }: { id?: string }) {
         setDate(t.date.slice(0, 10));
         setTaskName(t.title);
         setDesignation(t.officer.designation);
+        setAdditionalDesignations(
+          (t.additionalAssignees ?? []).map((a) => a.designation)
+        );
+        setCurrentAttachment(
+          t.attachmentUrl
+            ? { url: t.attachmentUrl, name: t.attachmentName || "View attachment" }
+            : null
+        );
         setStatus(t.status === "Overdue" ? "Pending" : t.status);
         setDueDate(t.dueDate.slice(0, 10));
         setDescription(t.description ?? "");
@@ -192,6 +204,38 @@ const removeBoRemark = async (index: number) => {
       }),
     });
 
+    // Other officers (pre-filled with the current ones, so saving keeps them)
+    const additionalOfficerData = await Promise.all(
+      additionalDesignations
+        .filter((d) => d !== designation)
+        .map((additionalDesignation) =>
+          apiFetch<{ user: { id: string } }>("/api/users/ensure-by-designation", {
+            method: "POST",
+            body: JSON.stringify({ designation: additionalDesignation }),
+          })
+        )
+    );
+    const additionalOfficerIds = additionalOfficerData.map((item) => item.user.id);
+
+    // New attachment only if one was chosen; otherwise the current one is kept
+    let attachmentData: {
+      attachmentUrl: string;
+      attachmentName: string;
+      attachmentType: string;
+    } | null = null;
+    if (attachment) {
+      const formData = new FormData();
+      formData.append("file", attachment);
+      attachmentData = await apiFetch<{
+        attachmentUrl: string;
+        attachmentName: string;
+        attachmentType: string;
+      }>("/api/tasks/upload", {
+        method: "POST",
+        body: formData,
+      });
+    }
+
     // 2. Prepare Action Plan
     const finalActionPlan =
       actionPlans
@@ -224,6 +268,10 @@ const removeBoRemark = async (index: number) => {
 
         // Co-ordinator Officer
         officerId: officerData.user.id,
+        additionalOfficerIds,
+
+        // Only present when a new file was uploaded
+        ...(attachmentData ?? {}),
 
         status,
       }),
@@ -373,45 +421,16 @@ for (const item of boRemarks) {
           />
         </div>
         <div className="form-group">
-  <label>Action Plan</label>
-
-  {actionPlans.map((plan, index) => (
-    <div key={index} className="array-field-row">
-      <textarea
-        rows={3}
-        placeholder={`Action Plan ${index + 1}`}
-        value={plan}
-        onChange={(e) => updateActionPlan(index, e.target.value)}
-      />
-
-      {actionPlans.length > 1 && (
-        <button
-          type="button"
-          onClick={() => removeActionPlan(index)}
-        >
-          Remove
-        </button>
-      )}
-    </div>
-  ))}
-
-  <button type="button" onClick={addActionPlan}>
-    + Add Action Plan
-  </button>
-</div>
-<div className="form-group">
-  <label>Action Plan TDC</label>
-
-  <input
-    type="date"
-    value={actionPlanTdc}
-    onChange={(e) => setActionPlanTdc(e.target.value)}
-  />
-
-  <span className="form-hint">
-    Action Plan TDC is decided by DRM.
-  </span>
-</div>
+          <label>Also Assigned To</label>
+          <MultiDesignationSelect
+            value={additionalDesignations}
+            onChange={setAdditionalDesignations}
+            exclude={designation}
+          />
+          <span className="form-hint">
+            Optional. Select one or more additional officers.
+          </span>
+        </div>
 
         <div className="form-group">
           <label>Status</label>
@@ -454,6 +473,47 @@ for (const item of boRemarks) {
         </div>
 
         <div className="form-group">
+  <label>Action Plan</label>
+
+  {actionPlans.map((plan, index) => (
+    <div key={index} className="array-field-row">
+      <textarea
+        rows={3}
+        placeholder={`Action Plan ${index + 1}`}
+        value={plan}
+        onChange={(e) => updateActionPlan(index, e.target.value)}
+      />
+
+      {actionPlans.length > 1 && (
+        <button
+          type="button"
+          onClick={() => removeActionPlan(index)}
+        >
+          Remove
+        </button>
+      )}
+    </div>
+  ))}
+
+  <button type="button" onClick={addActionPlan}>
+    + Add Action Plan
+  </button>
+</div>
+<div className="form-group">
+  <label>Action Plan TDC</label>
+
+  <input
+    type="date"
+    value={actionPlanTdc}
+    onChange={(e) => setActionPlanTdc(e.target.value)}
+  />
+
+  <span className="form-hint">
+    Action Plan TDC is decided by DRM.
+  </span>
+</div>
+
+        <div className="form-group">
           <label>DRM Remarks</label>
           <textarea
             rows={3}
@@ -462,6 +522,39 @@ for (const item of boRemarks) {
             onChange={(e) => setRemarks(e.target.value)}
           />
         </div>
+        <div className="form-group">
+          <label>Attachment</label>
+          {currentAttachment && !attachment && (
+            <span className="form-hint">
+              Current:{" "}
+              <a href={fileUrl(currentAttachment.url)} target="_blank" rel="noopener noreferrer">
+                {currentAttachment.name}
+              </a>
+            </span>
+          )}
+          <input
+            type="file"
+            accept=".pdf,image/*"
+            onChange={(e) => {
+              const file = e.target.files?.[0] ?? null;
+              setAttachment(file);
+            }}
+          />
+          <span className="form-hint">
+            PDF or image only.{currentAttachment ? " Choosing a file replaces the current one." : ""}
+          </span>
+        </div>
+
+        <div className="form-group">
+          <label>Description</label>
+          <textarea
+            rows={5}
+            placeholder="Enter task description..."
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+
         <div className="form-group">
   <label>BO's Remarks</label>
 
@@ -489,16 +582,6 @@ for (const item of boRemarks) {
     + Add BO's Remark
   </button>
 </div>
-
-        <div className="form-group">
-          <label>Description</label>
-          <textarea
-            rows={5}
-            placeholder="Enter task description..."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
 
         <div className="button-group">
 
