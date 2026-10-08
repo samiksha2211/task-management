@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import OfflineProvider from "@/components/OfflineProvider";
 import "./globals.css";
 import "./theme.css";
+import "./polish.css";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 

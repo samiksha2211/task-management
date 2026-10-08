@@ -1,0 +1,289 @@
+/* =====================================================================
+   UI polish layer
+   Loaded after every other stylesheet. Visual-only: it changes spacing,
+   typography and emphasis, never markup or behaviour. Colour overrides
+   are scoped to the light theme so dark mode keeps its own palette.
+   Delete this file (and its import in app/layout.tsx) to revert.
+===================================================================== */
+
+/* ---------- Typography ---------- */
+
+html body,
+html body button,
+html body input,
+html body select,
+html body textarea {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Textareas used a monospace placeholder font */
+html body textarea {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Visible keyboard focus everywhere */
+html body a:focus-visible,
+html body button:focus-visible,
+html body input:focus-visible,
+html body select:focus-visible,
+html body textarea:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* ---------- Page titles: one consistent size ---------- */
+
+html body .page-title,
+html body .tasks-content h1,
+html body .dashboard-content h1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Card headings were 20–34px depending on the card */
+html body .dashboard-card h2,
+html body .recent-tasks-card h2,
+html body .quick-actions h2,
+html body .due-today h2,
+html body .chart-card h3 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin-bottom: 14px;
+}
+
+/* ---------- Links that look like buttons ---------- */
+
+html body .add-task-btn,
+html body .view-all-btn,
+html body .btn-edit,
+html body .btn-back,
+html body .quick-card-link {
+  text-decoration: none;
+}
+
+html body .view-all-btn {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ---------- Top bar: stop the bell clipping off the right edge ---------- */
+
+html body .top-navbar {
+  margin-right: 0;
+}
+
+html body .top-right {
+  gap: 10px;
+}
+
+/* ---------- Tasks table ---------- */
+
+/* The table is deliberately wider than the screen (13 columns) and
+   scrolls sideways, but nothing showed that. Keep the scrollbar visible
+   so users can tell there are more columns to the right. */
+html body .task-table-scroll {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  -webkit-overflow-scrolling: touch;
+}
+
+html body .task-table-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+html body .task-table-scroll::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
+}
+
+html body .task-table-scroll::-webkit-scrollbar-track {
+  background: #eef2f7;
+}
+
+html body .task-table {
+  margin-top: 0;
+}
+
+/* Action Plan was narrowed to 120px by a later duplicate rule, so every
+   plan wrapped onto 5+ lines and made rows very tall. */
+html body .task-table th:nth-child(6),
+html body .task-table td:nth-child(6) {
+  width: 240px;
+}
+
+html body .task-table th {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 12px 10px;
+}
+
+html body .task-table td {
+  font-size: 14px;
+  padding: 12px 10px;
+  vertical-align: top;
+  line-height: 1.45;
+}
+
+html:not([data-theme="dark"]) body .task-table th {
+  background: #f4f7fb;
+  color: #374151;
+}
+
+html:not([data-theme="dark"]) body .task-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+html body .task-toolbar {
+  margin-bottom: 16px;
+}
+
+/* ---------- Status badges: same pill everywhere ---------- */
+
+html body .status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---------- Task detail page ---------- */
+
+html body .bo-response-section {
+  margin-top: 20px;
+}
+
+html body .bo-response-section h2 {
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+/* Officer updates were unstyled lines of text */
+html body .bo-update-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+html:not([data-theme="dark"]) body .bo-update-card {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  color: #1f2937;
+}
+
+html body .bo-update-card strong {
+  font-weight: 600;
+  color: inherit;
+}
+
+/* One tidy row of actions instead of a full-width red Delete */
+html body .task-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+html body .task-detail-actions a,
+html body .task-detail-actions button {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 10px 18px;
+  font-size: 15px;
+  line-height: 1.2;
+  height: auto;
+  min-height: 0;
+  border-radius: 10px;
+}
+
+/* Back goes to the far left, primary actions to the right */
+html body .task-detail-actions .btn-back {
+  order: -1;
+  margin-right: auto;
+}
+
+html:not([data-theme="dark"]) body .task-detail-actions .btn-delete {
+  background: #fff;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+html:not([data-theme="dark"]) body .task-detail-actions .btn-delete:hover {
+  background: #fef2f2;
+}
+
+/* ---------- Forms (add / edit task) ---------- */
+
+/* Cancel was as loud as Save (solid red); make it secondary */
+html:not([data-theme="dark"]) body .cancel-btn {
+  background: #fff;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+html:not([data-theme="dark"]) body .cancel-btn:hover {
+  background: #f3f4f6;
+}
+
+/* Status select had a grey fill unlike every other field */
+html:not([data-theme="dark"]) body .form-group select {
+  background-color: #fff;
+}
+
+/* ---------- Mobile ---------- */
+
+@media (max-width: 768px) {
+  html body .page-title,
+  html body .tasks-content h1,
+  html body .dashboard-content h1 {
+    font-size: 22px;
+  }
+
+  /* Search box and icon buttons on one row instead of stacked */
+  html body .top-right {
+    flex-wrap: nowrap;
+    width: 100%;
+  }
+
+  html body .top-right .search-box {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+  }
+
+  html body .top-right .notification-btn {
+    flex: 0 0 auto;
+  }
+
+  /* The filter bar stacks vertically here, so the designation filter's
+     "flex: 0 0 190px" became 190px of empty height. */
+  html body .task-toolbar .designation-multi-filter {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  html body .task-detail-actions a,
+  html body .task-detail-actions button {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  html body .task-detail-actions .btn-back {
+    flex-basis: 100%;
+    margin-right: 0;
+  }
+}
