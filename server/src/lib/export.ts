@@ -349,7 +349,7 @@ const PDF_LAYOUT: PdfColumn[] = [
   { key: "serial", label: "S.No.", pct: 4, align: "center" },
   { key: "date", label: "Date", pct: 7, align: "center" },
   { key: "task", label: "Task / Description", pct: 19, align: "left" },
-  { key: "coordinatorOfficer", label: "Co-ordinator", pct: 9, align: "left" },
+  { key: "coordinatorOfficer", label: "Co-ordinator Officer", pct: 9, align: "left" },
   { key: "otherOfficers", label: "Other Officers", pct: 10, align: "left" },
   { key: "actionPlan", label: "Action Plan", pct: 13, align: "left" },
   { key: "actionPlanTdc", label: "Action Plan TDC", pct: 8, align: "center" },

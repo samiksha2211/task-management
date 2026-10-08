@@ -85,7 +85,6 @@
 .task-table {
     width: 100%;
     border-collapse: collapse;
-    table-layout: fixed;
     margin-top: 20px;
     margin-left:0;
     background: #fff;
@@ -362,113 +361,143 @@
     padding-bottom: 14px;
 }
 
-.task-table {
-    width: 2200px;
-    min-width: 2200px;
+.task-list-table {
+    width: 2620px;
+    min-width: 2620px;
     table-layout: fixed;
     border-collapse: collapse;
     margin-top: 20px;
     background: #fff;
 }
 
-.task-table th,
-.task-table td {
+.task-list-table col.col-done { width: 56px; }
+.task-list-table col.col-date { width: 120px; }
+.task-list-table col.col-task { width: 260px; }
+.task-list-table col.col-coordinator { width: 210px; }
+.task-list-table col.col-other-officers { width: 200px; }
+.task-list-table col.col-action-plan { width: 240px; }
+.task-list-table col.col-action-plan-tdc { width: 150px; }
+.task-list-table col.col-execution-tdc { width: 140px; }
+.task-list-table col.col-status { width: 130px; }
+.task-list-table col.col-drm-remark { width: 200px; }
+.task-list-table col.col-drm-attachment { width: 170px; }
+.task-list-table col.col-bo-remark { width: 220px; }
+.task-list-table col.col-action { width: 320px; }
+
+.task-list-table th,
+.task-list-table td {
     box-sizing:border-box;
     padding-left:12px;
     padding-right:12px;
     vertical-align:middle;
+    overflow:hidden;
 }
-.task-table th {
-    white-space: nowrap;
+.task-list-table.task-table th {
+    white-space: normal;
+    overflow-wrap: break-word;
+    line-height: 1.3;
+    text-overflow: clip;
 }
 
 /* 1 - Done */
-.task-table th:nth-child(1),
-.task-table td:nth-child(1) {
-    width:60px;
+.task-list-table th:nth-child(1),
+.task-list-table td:nth-child(1) {
+    width:56px;
+    min-width:56px;
     text-align:center;
 }
 
 /* 2 - Date */
-.task-table th:nth-child(2),
-.task-table td:nth-child(2) {
-    width:115px;
+.task-list-table th:nth-child(2),
+.task-list-table td:nth-child(2) {
+    width:120px;
+    min-width:120px;
 }
 
 /* 3 - Task */
-.task-table th:nth-child(3),
-.task-table td:nth-child(3) {
-    width:270px;
+.task-list-table th:nth-child(3),
+.task-list-table td:nth-child(3) {
+    width:260px;
+    min-width:260px;
     overflow-wrap:anywhere;
 }
 
-/* 4 - Designation */
-.task-table th:nth-child(4),
-.task-table td:nth-child(4) {
-    width:170px;
-    overflow-wrap:anywhere;
-}
-
-/* 5 - Also Assigned To */
-.task-table th:nth-child(5),
-.task-table td:nth-child(5) {
+/* 4 - Co-ordinator Officer */
+.task-list-table th:nth-child(4),
+.task-list-table td:nth-child(4) {
     width:210px;
-    overflow-wrap:anywhere;
+    min-width:210px;
+    overflow-wrap:break-word;
+}
+
+/* 5 - Other Officers */
+.task-list-table th:nth-child(5),
+.task-list-table td:nth-child(5) {
+    width:200px;
+    min-width:200px;
+    overflow-wrap:break-word;
     line-height:1.4;
 }
+
 /* 6 - Action Plan */
-.task-table th:nth-child(6),
-.task-table td:nth-child(6) {
-    width: 230px;
+.task-list-table th:nth-child(6),
+.task-list-table td:nth-child(6) {
+    width: 240px;
+    min-width: 240px;
     overflow-wrap: anywhere;
 }
 
 /* 7 - Action Plan TDC */
-.task-table th:nth-child(7),
-.task-table td:nth-child(7) {
-    width: 155px;
+.task-list-table th:nth-child(7),
+.task-list-table td:nth-child(7) {
+    width: 150px;
+    min-width: 150px;
 }
-/* 8 - Execution Date */
-.task-table th:nth-child(7),
-.task-table td:nth-child(7) {
-    width:145px;
+
+/* 8 - Execution TDC */
+.task-list-table th:nth-child(8),
+.task-list-table td:nth-child(8) {
+    width:140px;
+    min-width:140px;
 }
 
 /* 9 - Status */
-.task-table th:nth-child(6),
-.task-table td:nth-child(6) {
-    width:120px;
+.task-list-table th:nth-child(9),
+.task-list-table td:nth-child(9) {
+    width:130px;
+    min-width:130px;
 }
 
-
-
-/* 10 - DRM Remarks */
-.task-table th:nth-child(8),
-.task-table td:nth-child(8) {
-    width:230px;
+/* 10 - DRM Remark */
+.task-list-table th:nth-child(10),
+.task-list-table td:nth-child(10) {
+    width:200px;
+    min-width:200px;
     overflow-wrap:anywhere;
 }
 
 /* 11 - DRM Attachment */
-.task-table th:nth-child(9),
-.task-table td:nth-child(9) {
-    width:150px;
-    text-align:center;
-    white-space:nowrap;
+.task-list-table th:nth-child(11),
+.task-list-table td:nth-child(11) {
+    width:170px;
+    min-width:170px;
 }
-/* 12 - BO Update */
-.task-table th:nth-child(12),
-.task-table td:nth-child(12) {
-    width: 230px;
+
+/* 12 - BO Remark */
+.task-list-table th:nth-child(12),
+.task-list-table td:nth-child(12) {
+    width: 220px;
+    min-width: 220px;
     overflow-wrap: anywhere;
 }
 
 /* 13 - Action */
-.task-table th:nth-child(10),
-.task-table td:nth-child(10) {
-    width:240px;
-    text-align:center;
+.task-list-table th:nth-child(13),
+.task-list-table td:nth-child(13) {
+    width:320px;
+    min-width:320px;
     white-space:nowrap;
+    overflow:visible;
 }
 
 .task-table td.action-buttons {
@@ -476,6 +505,7 @@
     vertical-align:middle;
     text-align:left;
     white-space:nowrap;
+    overflow:visible;
 }
 
 .task-table td.action-buttons > * {
@@ -496,6 +526,7 @@
     vertical-align:middle;
     text-align:left;
     white-space:nowrap;
+    overflow:visible;
 }
 
 .task-table td.action-buttons > * {

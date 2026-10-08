@@ -1008,7 +1008,22 @@ const handleDeleteBoUpdate = async (
 
         <div className="task-table-scroll">
 
-        <table className="task-table">
+        <table className="task-table task-list-table">
+          <colgroup>
+            <col className="col-done" />
+            <col className="col-date" />
+            <col className="col-task" />
+            <col className="col-coordinator" />
+            <col className="col-other-officers" />
+            <col className="col-action-plan" />
+            <col className="col-action-plan-tdc" />
+            <col className="col-execution-tdc" />
+            <col className="col-status" />
+            <col className="col-drm-remark" />
+            <col className="col-drm-attachment" />
+            <col className="col-bo-remark" />
+            <col className="col-action" />
+          </colgroup>
 
           <thead>
 

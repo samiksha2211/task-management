@@ -111,8 +111,8 @@ html body .task-table {
 
 /* Action Plan was narrowed to 120px by a later duplicate rule, so every
    plan wrapped onto 5+ lines and made rows very tall. */
-html body .task-table th:nth-child(6),
-html body .task-table td:nth-child(6) {
+html body .task-list-table th:nth-child(6),
+html body .task-list-table td:nth-child(6) {
   width: 240px;
 }
 
