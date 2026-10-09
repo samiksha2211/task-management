@@ -109,6 +109,37 @@ html body .task-table {
   margin-top: 0;
 }
 
+/* Tasks page: the table scrolls inside its own screen-height box, so the
+   sideways scrollbar is always at the bottom of what you can see instead
+   of below the last row. Column headers stay pinned while scrolling down.
+   Scoped to .tasks-content so the dashboard's Recent Tasks is unaffected. */
+html body .tasks-content .task-table-scroll {
+  overflow: auto;
+  max-height: calc(100vh - 250px);
+  min-height: 320px;
+  padding-bottom: 0;
+}
+
+html body .tasks-content .task-table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: inset 0 -1px 0 #e5e7eb;
+}
+
+html:not([data-theme="dark"]) body .tasks-content .task-table-scroll thead th {
+  background: #f4f7fb;
+}
+
+html[data-theme="dark"] body .tasks-content .task-table-scroll thead th {
+  background: #334155;
+  box-shadow: inset 0 -1px 0 #475569;
+}
+
+html body .task-table-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
 /* Action Plan was narrowed to 120px by a later duplicate rule, so every
    plan wrapped onto 5+ lines and made rows very tall. */
 html body .task-list-table th:nth-child(6),
