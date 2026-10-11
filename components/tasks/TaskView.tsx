@@ -477,7 +477,7 @@ export default function TaskView({ id }: { id?: string }) {
             <input
               id="boAttachment"
               type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.webp"
+              accept=".pdf,.jpg,.jpeg,.png,.webp,.ppt,.pptx"
               onChange={(e) => {
                 const file =
                   e.target.files?.[0] ?? null;

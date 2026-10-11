@@ -29,6 +29,10 @@ export default function TaskEditForm({ id }: { id?: string }) {
   type BoRemarkItem = {
   id?: string;
   remark: string;
+  // Current BO attachment (already saved) and a newly chosen file
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  newFile?: File | null;
 };
 
  const [boRemarks, setBoRemarks] = useState<BoRemarkItem[]>([
@@ -75,12 +79,14 @@ export default function TaskEditForm({ id }: { id?: string }) {
               );
 
             setBoRemarks(
-              t.officerUpdates?.some((u) => u.remark?.trim())
+              t.officerUpdates?.some((u) => u.remark?.trim() || u.attachmentUrl)
               ? t.officerUpdates
-              .filter((u) => u.remark?.trim())
+              .filter((u) => u.remark?.trim() || u.attachmentUrl)
               .map((u) => ({
               id: u.id,
               remark: u.remark ?? "",
+              attachmentUrl: u.attachmentUrl,
+              attachmentName: u.attachmentName,
               }))
               : [{ remark: "" }]
               );
@@ -124,6 +130,25 @@ const updateBoRemark = (
         : item
     )
   );
+};
+
+const setBoAttachment = (index: number, file: File | null) => {
+  setBoRemarks((prev) =>
+    prev.map((item, i) => (i === index ? { ...item, newFile: file } : item))
+  );
+};
+
+const uploadBoAttachment = async (file: File) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<{
+    attachmentUrl: string;
+    attachmentName: string;
+    attachmentType: string;
+  }>("/api/tasks/officer-update/upload", {
+    method: "POST",
+    body: formData,
+  });
 };
 
 const addBoRemark = () => {
@@ -280,6 +305,9 @@ const removeBoRemark = async (index: number) => {
 for (const item of boRemarks) {
   const remark = item.remark.trim();
 
+  // Upload a newly chosen BO attachment, if any
+  const boFile = item.newFile ? await uploadBoAttachment(item.newFile) : null;
+
   // Existing BO Remark
   if (item.id) {
     await apiFetch(
@@ -288,6 +316,7 @@ for (const item of boRemarks) {
         method: "PUT",
         body: JSON.stringify({
           remark: remark || null,
+          ...(boFile ?? {}),
         }),
       }
     );
@@ -295,14 +324,15 @@ for (const item of boRemarks) {
     continue;
   }
 
-  // New BO Remark
-  if (remark) {
+  // New BO Remark and/or attachment
+  if (remark || boFile) {
     await apiFetch(
       `/api/tasks/${id}/officer-updates`,
       {
         method: "POST",
         body: JSON.stringify({
-          remark,
+          remark: remark || null,
+          ...(boFile ?? {}),
         }),
       }
     );
@@ -534,14 +564,14 @@ for (const item of boRemarks) {
           )}
           <input
             type="file"
-            accept=".pdf,image/*"
+            accept=".pdf,.jpg,.jpeg,.png,.webp,.ppt,.pptx"
             onChange={(e) => {
               const file = e.target.files?.[0] ?? null;
               setAttachment(file);
             }}
           />
           <span className="form-hint">
-            PDF or image only.{currentAttachment ? " Choosing a file replaces the current one." : ""}
+            PDF, image or PowerPoint.{currentAttachment ? " Choosing a file replaces the current one." : ""}
           </span>
         </div>
 
@@ -566,6 +596,26 @@ for (const item of boRemarks) {
         value={remark.remark}
         onChange={(e) => updateBoRemark(index, e.target.value)}
       />
+
+      <div className="bo-attachment-field">
+        <label>BO&apos;s Attachment</label>
+        {remark.attachmentUrl && !remark.newFile && (
+          <span className="form-hint">
+            Current:{" "}
+            <a href={fileUrl(remark.attachmentUrl)} target="_blank" rel="noopener noreferrer">
+              {remark.attachmentName || "View attachment"}
+            </a>
+          </span>
+        )}
+        <input
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png,.webp,.ppt,.pptx"
+          onChange={(e) => setBoAttachment(index, e.target.files?.[0] ?? null)}
+        />
+        <span className="form-hint">
+          PDF, image or PowerPoint.{remark.attachmentUrl ? " Choosing a file replaces the current one." : ""}
+        </span>
+      </div>
 
       {boRemarks.length > 1 && (
         <button

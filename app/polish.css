@@ -304,6 +304,49 @@ html body .form-group .multi-designation-option input[type="checkbox"] {
   padding: 0;
 }
 
+/* Edit Task: BO's Attachment picker under each BO remark */
+html body .bo-attachment-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 14px;
+}
+
+html body .form-group .bo-attachment-field label {
+  font-size: 14px;
+  margin-bottom: 0;
+}
+
+/* Repeating rows (Action Plan, BO's Remarks): divider between entries and
+   a small outline Remove instead of a full-width primary button */
+html body .form-group .array-field-row {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px dashed #d1d5db;
+}
+
+html body .form-group .array-field-row > button {
+  display: block;
+  width: auto;
+  margin: 8px 0 0 auto;
+  padding: 6px 14px;
+  font-size: 14px;
+  line-height: 1.2;
+  height: auto;
+  min-height: 0;
+  border-radius: 8px;
+}
+
+html:not([data-theme="dark"]) body .form-group .array-field-row > button {
+  background: #fff;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+html:not([data-theme="dark"]) body .form-group .array-field-row > button:hover {
+  background: #fef2f2;
+}
+
 /* ---------- Mobile ---------- */
 
 @media (max-width: 768px) {

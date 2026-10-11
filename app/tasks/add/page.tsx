@@ -357,14 +357,14 @@ const additionalOfficerIds = additionalOfficerData.map(
                 <label>Attachment</label>
                 <input
                   type="file"
-                  accept=".pdf,image/*"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.ppt,.pptx"
                   onChange={(e) => {
                     const file = e.target.files?.[0] ?? null;
                     setAttachment(file);
                   }}
                 />
                 <span className="form-hint">
-                  PDF or image only.
+                  PDF, image or PowerPoint.
                 </span>
               </div>
 

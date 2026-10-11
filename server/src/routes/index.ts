@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import * as auth from "../controllers/auth";
 import * as dashboard from "../controllers/dashboard";
 import * as events from "../controllers/events";
@@ -14,26 +14,87 @@ import { runTaskReminders } from "../jobs/taskReminder";
 const router = Router();
 const uploadDir = path.join(process.cwd(), "uploads");
 
+// PDF, images and PowerPoint. Some browsers send PowerPoint files as
+// application/octet-stream, so the file extension is checked too.
+const ALLOWED_UPLOADS: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx":
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+function uploadContentType(file: Express.Multer.File): string | null {
+  const ext = path.extname(file.originalname).toLowerCase();
+  const expected = ALLOWED_UPLOADS[ext];
+  if (!expected) return null;
+  const allowedMimes = Object.values(ALLOWED_UPLOADS);
+  if (allowedMimes.includes(file.mimetype)) return file.mimetype;
+  if (file.mimetype === "application/octet-stream" || file.mimetype === "") {
+    return expected;
+  }
+  return null;
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
   },
   fileFilter: (_req, file, cb) => {
-    const allowedTypes = [
-      "application/pdf",
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-    ];
-
-    if (allowedTypes.includes(file.mimetype)) {
+    if (uploadContentType(file)) {
       cb(null, true);
     } else {
-      cb(new Error("Only PDF and image files are allowed."));
+      cb(new Error("Only PDF, image and PowerPoint files are allowed."));
     }
   },
 });
+
+async function handleUpload(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  if (!req.file) {
+    res.status(400).json({ error: "No file uploaded" });
+    return;
+  }
+
+  const contentType = uploadContentType(req.file) ?? req.file.mimetype;
+  const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const filename = `${Date.now()}-${safeName}`;
+  let attachmentUrl: string;
+
+  try {
+    // On Vercel the filesystem is ephemeral, so store in Vercel Blob
+    // (token auth, or OIDC via BLOB_STORE_ID on newer Blob stores).
+    // Without Blob credentials (local dev), keep writing to ./uploads.
+    if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
+      const blob = await put(`uploads/${filename}`, req.file.buffer, {
+        access: "public",
+        addRandomSuffix: true,
+        contentType,
+      });
+      attachmentUrl = blob.url;
+    } else {
+      fs.mkdirSync(uploadDir, { recursive: true });
+      fs.writeFileSync(path.join(uploadDir, filename), req.file.buffer);
+      attachmentUrl = `/uploads/${filename}`;
+    }
+  } catch (error) {
+    next(error);
+    return;
+  }
+
+  res.json({
+    attachmentUrl,
+    attachmentName: req.file.originalname,
+    attachmentType: contentType,
+  });
+}
 
 // Called daily by Vercel Cron (see vercel.json). Vercel sends
 // "Authorization: Bearer $CRON_SECRET" when CRON_SECRET is set.
@@ -79,43 +140,15 @@ router.post(
   requireAuth,
   requireAdmin,
   upload.single("file"),
-  async (req, res, next) => {
-    if (!req.file) {
-      res.status(400).json({ error: "No file uploaded" });
-      return;
-    }
-
-    const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const filename = `${Date.now()}-${safeName}`;
-    let attachmentUrl: string;
-
-    try {
-      // On Vercel the filesystem is ephemeral, so store in Vercel Blob
-      // (token auth, or OIDC via BLOB_STORE_ID on newer Blob stores).
-      // Without Blob credentials (local dev), keep writing to ./uploads.
-      if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
-        const blob = await put(`uploads/${filename}`, req.file.buffer, {
-          access: "public",
-          addRandomSuffix: true,
-          contentType: req.file.mimetype,
-        });
-        attachmentUrl = blob.url;
-      } else {
-        fs.mkdirSync(uploadDir, { recursive: true });
-        fs.writeFileSync(path.join(uploadDir, filename), req.file.buffer);
-        attachmentUrl = `/uploads/${filename}`;
-      }
-    } catch (error) {
-      next(error);
-      return;
-    }
-
-    res.json({
-      attachmentUrl,
-      attachmentName: req.file.originalname,
-      attachmentType: req.file.mimetype,
-    });
-  }
+  handleUpload
+);
+// BO (officer) attachments. The officer view already called this route,
+// but it did not exist, so officers' attachment uploads failed.
+router.post(
+  "/tasks/officer-update/upload",
+  requireAuth,
+  upload.single("file"),
+  handleUpload
 );
 router.post("/tasks", requireAuth, requireAdmin, tasks.createTask);
 router.post(
