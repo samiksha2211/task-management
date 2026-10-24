@@ -12,7 +12,9 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test:unit": "node --import tsx --test src/services/scheduling/rules.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -23,6 +25,7 @@
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.3.0",
@@ -39,6 +42,7 @@
     "@types/node": "^20.17.10",
     "@types/node-cron": "^3.0.11",
     "@types/pdfkit": "^0.17.6",
+    "embedded-postgres": "^17.10.0-beta.17",
     "prisma": "^6.19.0",
     "tsx": "^4.23.15",
     "typescript": "^5.7.2"

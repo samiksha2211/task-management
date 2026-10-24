@@ -64,6 +64,20 @@ export interface SerializedTask {
 
   status: TaskStatusLabel;
 
+  priority: string | null;
+
+  // Monday meeting scheduling
+  discussionFrequency: "M" | "F" | "NM" | null;
+  monthlyMondayOrdinal: number | null;
+  lastDiscussedAt: string | null;
+  nextDiscussionDate: string | null;
+  scheduleState: string;
+  scheduleReason: string | null;
+  estimatedDiscussionMinutes: number | null;
+  isBlocked: boolean;
+  flaggedForReview: boolean;
+  latestReviewNote: string | null;
+
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -159,6 +173,23 @@ export function serializeTask(
     attachmentType: task.attachmentType,
 
     status,
+
+    priority: task.priority,
+
+    discussionFrequency: task.discussionFrequency,
+    monthlyMondayOrdinal: task.monthlyMondayOrdinal,
+    lastDiscussedAt: task.lastDiscussedAt
+      ? task.lastDiscussedAt.toISOString().slice(0, 10)
+      : null,
+    nextDiscussionDate: task.nextDiscussionDate
+      ? task.nextDiscussionDate.toISOString().slice(0, 10)
+      : null,
+    scheduleState: task.scheduleState,
+    scheduleReason: task.scheduleReason,
+    estimatedDiscussionMinutes: task.estimatedDiscussionMinutes,
+    isBlocked: task.isBlocked,
+    flaggedForReview: task.flaggedForReview,
+    latestReviewNote: task.latestReviewNote,
 
     deletedAt: task.deletedAt
       ? task.deletedAt.toISOString()

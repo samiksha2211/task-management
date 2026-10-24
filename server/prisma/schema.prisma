@@ -26,6 +26,7 @@ model User {
   tasks                     Task[]
   additionalTaskAssignments TaskAdditionalAssignee[]
   taskOfficerUpdates        TaskOfficerUpdate[]
+  scheduleEvents            TaskScheduleEvent[]
 
   @@index([designation])
 }
@@ -56,15 +57,164 @@ model Task {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
+  // Monday meeting scheduling. All nullable / defaulted so existing tasks are
+  // untouched: a task with no discussionFrequency is "not yet scheduled" and
+  // never appears on an agenda until a user assigns one.
+  discussionFrequency        DiscussionFrequency?
+  // NM tasks: which Monday of the following month (1-4, or -1 = last). Null = first.
+  monthlyMondayOrdinal       Int?
+  lastDiscussedAt            DateTime?            @db.Date
+  nextDiscussionDate         DateTime?            @db.Date
+  // The date the frequency rule had produced before a deferral / bring-forward.
+  originalDiscussionDate     DateTime?            @db.Date
+  scheduleState              ScheduleState        @default(SCHEDULED)
+  scheduleReason             String?
+  estimatedDiscussionMinutes Int?
+  isBlocked                  Boolean              @default(false)
+  flaggedForReview           Boolean              @default(false)
+  latestReviewNote           String?
+  latestReviewAt             DateTime?
+
   notifications       Notification[]
   officer             User                     @relation(fields: [officerId], references: [id])
   additionalAssignees TaskAdditionalAssignee[]
   officerUpdates      TaskOfficerUpdate[]
+  agendaItems         MeetingAgendaItem[]
+  scheduleEvents      TaskScheduleEvent[]
 
   @@index([status])
   @@index([officerId])
   @@index([dueDate])
   @@index([deletedAt])
+  @@index([nextDiscussionDate])
+}
+
+// One Monday meeting. meetingDate is unique, so reopening or regenerating an
+// agenda always works on the same record.
+model Meeting {
+  id                   String        @id @default(cuid())
+  meetingDate          DateTime      @unique @db.Date
+  status               MeetingStatus @default(DRAFT)
+  durationLimitMinutes Int           @default(90)
+  notes                String?
+  reportUrl            String?
+  reportName           String?
+  finalizedAt          DateTime?
+  closedAt             DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  items  MeetingAgendaItem[]
+  events TaskScheduleEvent[]
+}
+
+model MeetingAgendaItem {
+  id                     String          @id @default(cuid())
+  meetingId              String
+  taskId                 String
+  section                AgendaSection
+  inclusion              AgendaInclusion
+  reason                 String
+  estimatedMinutes       Int
+  outcome                AgendaOutcome   @default(PENDING)
+  discussionNotes        String?
+  decisions              String?
+  deferredTo             DateTime?       @db.Date
+  deferReason            String?
+  // Task schedule before the outcome was recorded, so an outcome can be undone.
+  prevLastDiscussedAt    DateTime?       @db.Date
+  prevNextDiscussionDate DateTime?       @db.Date
+  prevScheduleState      ScheduleState?
+  prevOriginalDate       DateTime?       @db.Date
+  prevScheduleReason     String?
+  outcomeAt              DateTime?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  task    Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, taskId])
+  @@index([taskId])
+}
+
+// Audit trail of every scheduling change.
+model TaskScheduleEvent {
+  id            String               @id @default(cuid())
+  taskId        String
+  meetingId     String?
+  userId        String?
+  type          ScheduleEventType
+  fromDate      DateTime?            @db.Date
+  toDate        DateTime?            @db.Date
+  fromFrequency DiscussionFrequency?
+  toFrequency   DiscussionFrequency?
+  reason        String?
+  createdAt     DateTime             @default(now())
+
+  task    Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  meeting Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@index([meetingId])
+}
+
+enum DiscussionFrequency {
+  M
+  F
+  NM
+}
+
+enum ScheduleState {
+  SCHEDULED
+  DEFERRED
+  BROUGHT_FORWARD
+  PINNED
+  CANCELLED
+}
+
+enum MeetingStatus {
+  DRAFT
+  FINALIZED
+  CLOSED
+}
+
+enum AgendaSection {
+  URGENT
+  BLOCKED_OVERDUE
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+  NEW
+}
+
+enum AgendaInclusion {
+  DUE
+  BROUGHT_FORWARD
+  MANUAL
+}
+
+enum AgendaOutcome {
+  PENDING
+  DISCUSSED
+  NOT_DISCUSSED
+  DEFERRED
+}
+
+enum ScheduleEventType {
+  INITIALIZED
+  FREQUENCY_CHANGED
+  RESCHEDULED
+  BROUGHT_FORWARD
+  DEFERRED
+  DISCUSSED
+  DISCUSSION_UNDONE
+  REVIEW_UPDATED
+  ADDED_TO_AGENDA
+  REMOVED_FROM_AGENDA
+  COMPLETED
+  CANCELLED
 }
 
 model TaskAdditionalAssignee {

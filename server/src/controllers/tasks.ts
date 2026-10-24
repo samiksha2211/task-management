@@ -15,6 +15,8 @@ import { broadcast } from "../lib/sse";
 import { validate } from "../lib/validate";
 import type { AuthRequest } from "../middleware/auth";
 import { prisma } from "../prisma";
+import { updateTaskSchedule } from "../services/scheduling/actions";
+import { syncOpenMeetings, TX_OPTIONS } from "../services/scheduling/repository";
 
 const statusInput = z.enum(["Pending", "Completed", "pending", "completed"]);
 
@@ -38,7 +40,29 @@ const taskFields = {
   attachmentUrl: z.string().optional().nullable(),
   attachmentName: z.string().optional().nullable(),
   attachmentType: z.string().optional().nullable(),
+
+  // Monday meeting scheduling
+  discussionFrequency: z.enum(["M", "F", "NM"]).optional().nullable(),
+  monthlyMondayOrdinal: z
+    .union([z.literal(-1), z.number().int().min(1).max(4)])
+    .optional()
+    .nullable(),
+  estimatedDiscussionMinutes: z.number().int().min(1).max(240).optional().nullable(),
 };
+
+type ScheduleFields = {
+  discussionFrequency?: "M" | "F" | "NM" | null;
+  monthlyMondayOrdinal?: number | null;
+  estimatedDiscussionMinutes?: number | null;
+};
+
+function hasScheduleFields(body: ScheduleFields): boolean {
+  return (
+    body.discussionFrequency !== undefined ||
+    body.monthlyMondayOrdinal !== undefined ||
+    body.estimatedDiscussionMinutes !== undefined
+  );
+}
 
 const createSchema = z.object({
   ...taskFields,
@@ -138,6 +162,32 @@ function buildListWhere(q: ListQuery): Prisma.TaskWhereInput {
   }
 
   return where;
+}
+
+// Scheduling goes through the central scheduling service so the first
+// discussion date follows the same rules as the meeting agenda.
+async function applyScheduleFields(
+  taskId: string,
+  body: ScheduleFields,
+  userId: string | null,
+  eventType: "INITIALIZED" | "FREQUENCY_CHANGED"
+) {
+  await prisma.$transaction(async (tx) => {
+    const current = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
+    await updateTaskSchedule(
+      tx,
+      current,
+      {
+        discussionFrequency: body.discussionFrequency,
+        monthlyMondayOrdinal: body.monthlyMondayOrdinal,
+        estimatedDiscussionMinutes: body.estimatedDiscussionMinutes,
+      },
+      userId,
+      eventType
+    );
+  }, TX_OPTIONS);
+  await prisma.$transaction((tx) => syncOpenMeetings(tx, userId ?? undefined), TX_OPTIONS);
+  return prisma.task.findUniqueOrThrow({ where: { id: taskId }, include: taskInclude });
 }
 
 async function officerOrThrow(officerId: string): Promise<boolean> {
@@ -339,6 +389,10 @@ try {
 
   throw error;
 }
+  if (hasScheduleFields(body)) {
+    task = await applyScheduleFields(task.id, body, req.user?.id ?? null, "INITIALIZED");
+  }
+
   console.log("Task created:", task.title);
   console.log(
     "Assigned officer:",
@@ -425,11 +479,15 @@ if (body.attachmentType !== undefined) {
   if (body.officerId !== undefined) data.officer = { connect: { id: body.officerId } };
   if (body.priority !== undefined) data.priority = body.priority || null;
 
-  const task = await prisma.task.update({
+  let task = await prisma.task.update({
     where: { id: param(req, "id") },
     data,
     include: taskInclude,
   });
+
+  if (hasScheduleFields(body)) {
+    task = await applyScheduleFields(task.id, body, req.user?.id ?? null, "FREQUENCY_CHANGED");
+  }
 
   res.json({ task: serializeTask(task) });
   broadcast("task:updated", { id: task.id });

@@ -13,6 +13,20 @@ export type ApiTask = {
   attachmentType: string | null;
   
   status: "Pending" | "Completed" | "Overdue";
+  priority?: string | null;
+
+  // Monday meeting scheduling
+  discussionFrequency?: "M" | "F" | "NM" | null;
+  monthlyMondayOrdinal?: number | null;
+  lastDiscussedAt?: string | null;
+  nextDiscussionDate?: string | null;
+  scheduleState?: string;
+  scheduleReason?: string | null;
+  estimatedDiscussionMinutes?: number | null;
+  isBlocked?: boolean;
+  flaggedForReview?: boolean;
+  latestReviewNote?: string | null;
+
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;

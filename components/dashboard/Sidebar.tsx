@@ -14,6 +14,7 @@ import {
   FaTrain,
   FaBars,
   FaTimes,
+  FaCalendarCheck,
 } from "react-icons/fa";
 import { clearAuth, getStoredUser } from "@/lib/api";
 import { disconnectRealtime } from "@/lib/realtime";
@@ -85,6 +86,16 @@ export default function Sidebar() {
               <FaTasks />
               <span>Tasks</span>
             </Link>
+
+            {isAdmin && (
+              <Link
+                href="/meetings"
+                className={pathname === "/meetings" ? "active" : ""}
+              >
+                <FaCalendarCheck />
+                <span>Monday Meeting</span>
+              </Link>
+            )}
 
             {isAdmin && (
               <Link

@@ -13,6 +13,11 @@ import {
 } from "@/lib/offline";
 import DesignationAutocomplete from "@/components/DesignationAutocomplete";
 import MultiDesignationSelect from "@/components/MultiDesignationSelect";
+import ScheduleFields, {
+  EMPTY_SCHEDULE,
+  scheduleBody,
+  type ScheduleValue,
+} from "@/components/meetings/ScheduleFields";
 import "../tasks.css";
 import "./add.css";
 
@@ -41,6 +46,7 @@ export default function AddTaskPage() {
   const [remarks, setRemarks] = useState("");
   const [saving, setSaving] = useState(false);
   const [attachment, setAttachment] = useState<File | null>(null);
+  const [schedule, setSchedule] = useState<ScheduleValue>(EMPTY_SCHEDULE);
 
   useEffect(() => {
     if (getRole() !== "ADMIN") {
@@ -105,6 +111,7 @@ export default function AddTaskPage() {
       (d) => d !== designation
       ),
       status: status as "Pending" | "Completed",
+      ...scheduleBody(schedule),
     };
 
     if (isBrowserOffline()) {
@@ -183,6 +190,7 @@ const additionalOfficerIds = additionalOfficerData.map(
           officerId: officerData.user.id,
           additionalOfficerIds,
           status: payload.status,
+          ...scheduleBody(schedule),
           attachmentUrl: attachmentData?.attachmentUrl ?? null,
           attachmentName: attachmentData?.attachmentName ?? null,
           attachmentType: attachmentData?.attachmentType ?? null,
@@ -279,6 +287,8 @@ const additionalOfficerIds = additionalOfficerData.map(
                   <option>Completed</option>
                 </select>
               </div>
+
+              <ScheduleFields value={schedule} onChange={setSchedule} />
 
               <div className="form-group">
                 <label>Due In (Days)</label>

@@ -13,6 +13,13 @@ export type PendingTaskCreate = {
   additionalDesignations: string[];
 
   status: "Pending" | "Completed";
+
+  // Monday meeting scheduling (optional: older queued items have none)
+  priority?: string | null;
+  discussionFrequency?: "M" | "F" | "NM" | null;
+  monthlyMondayOrdinal?: number | null;
+  estimatedDiscussionMinutes?: number | null;
+
   createdAt: string;
   syncState: "pending" | "syncing" | "failed";
   lastError?: string;
@@ -174,6 +181,11 @@ export async function enqueueTaskCreate(
       input.additionalDesignations ?? [],
 
     status: input.status,
+
+    priority: input.priority ?? null,
+    discussionFrequency: input.discussionFrequency ?? null,
+    monthlyMondayOrdinal: input.monthlyMondayOrdinal ?? null,
+    estimatedDiscussionMinutes: input.estimatedDiscussionMinutes ?? null,
 
     createdAt: new Date().toISOString(),
 

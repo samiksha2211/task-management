@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { apiFetch, fileUrl, getRole, type ApiTask } from "@/lib/api";
 import DesignationAutocomplete from "@/components/DesignationAutocomplete";
 import MultiDesignationSelect from "@/components/MultiDesignationSelect";
+import ScheduleFields, {
+  EMPTY_SCHEDULE,
+  scheduleBody,
+  type ScheduleValue,
+} from "@/components/meetings/ScheduleFields";
 
 export default function TaskEditForm({ id }: { id?: string }) {
   const router = useRouter();
@@ -26,6 +31,12 @@ export default function TaskEditForm({ id }: { id?: string }) {
   const [remarks, setRemarks] = useState("");
   const [actionPlans, setActionPlans] = useState<string[]>([""]);
   const [actionPlanTdc, setActionPlanTdc] = useState("");
+  const [schedule, setSchedule] = useState<ScheduleValue>(EMPTY_SCHEDULE);
+  const [initialSchedule, setInitialSchedule] = useState<ScheduleValue>(EMPTY_SCHEDULE);
+  const [scheduleDates, setScheduleDates] = useState<{ next: string | null; last: string | null }>({
+    next: null,
+    last: null,
+  });
   type BoRemarkItem = {
   id?: string;
   remark: string;
@@ -65,6 +76,15 @@ export default function TaskEditForm({ id }: { id?: string }) {
         setDueDate(t.dueDate.slice(0, 10));
         setDescription(t.description ?? "");
         setRemarks(t.remarks ?? "");
+        const loadedSchedule: ScheduleValue = {
+          frequency: t.discussionFrequency ?? "",
+          monthlyMondayOrdinal: t.monthlyMondayOrdinal ?? 1,
+          priority: (t.priority ?? "NORMAL").toUpperCase(),
+          estimatedMinutes: t.estimatedDiscussionMinutes ? String(t.estimatedDiscussionMinutes) : "",
+        };
+        setSchedule(loadedSchedule);
+        setInitialSchedule(loadedSchedule);
+        setScheduleDates({ next: t.nextDiscussionDate ?? null, last: t.lastDiscussedAt ?? null });
         setActionPlanTdc(
           t.actionPlanTdc ? t.actionPlanTdc.slice(0, 10) : "" );
        
@@ -268,6 +288,22 @@ const removeBoRemark = async (index: number) => {
         .filter(Boolean)
         .join("\n") || null;
 
+    // Only changed scheduling fields are sent, so saving other edits never
+    // recalculates the meeting schedule.
+    const nextSchedule = scheduleBody(schedule);
+    const prevSchedule = scheduleBody(initialSchedule);
+    const scheduleChanges = {
+      priority: nextSchedule.priority,
+      ...((nextSchedule.discussionFrequency !== prevSchedule.discussionFrequency ||
+        nextSchedule.monthlyMondayOrdinal !== prevSchedule.monthlyMondayOrdinal) && {
+        discussionFrequency: nextSchedule.discussionFrequency,
+        monthlyMondayOrdinal: nextSchedule.monthlyMondayOrdinal,
+      }),
+      ...(nextSchedule.estimatedDiscussionMinutes !== prevSchedule.estimatedDiscussionMinutes && {
+        estimatedDiscussionMinutes: nextSchedule.estimatedDiscussionMinutes,
+      }),
+    };
+
     // 3. Update the task
     const result = await apiFetch<{
       task: ApiTask;
@@ -299,6 +335,7 @@ const removeBoRemark = async (index: number) => {
         ...(attachmentData ?? {}),
 
         status,
+        ...scheduleChanges,
       }),
     });
     // 4. Save BO Remarks
@@ -472,6 +509,13 @@ for (const item of boRemarks) {
             <option>Completed</option>
           </select>
         </div>
+
+        <ScheduleFields
+          value={schedule}
+          onChange={setSchedule}
+          nextDiscussionDate={scheduleDates.next}
+          lastDiscussedAt={scheduleDates.last}
+        />
 
         <div className="form-group">
           <label>Due In (Days)</label>

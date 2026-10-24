@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import * as auth from "../controllers/auth";
 import * as dashboard from "../controllers/dashboard";
 import * as events from "../controllers/events";
+import * as meetings from "../controllers/meetings";
 import * as tasks from "../controllers/tasks";
 import * as users from "../controllers/users";
 import { requireAdmin, requireAuth } from "../middleware/auth";
@@ -174,6 +175,26 @@ router.patch("/tasks/:id/status", requireAuth, tasks.updateTaskStatus);
 router.delete("/tasks/:id/hard", requireAuth, requireAdmin, tasks.hardDelete);
 router.delete("/tasks/:id", requireAuth, requireAdmin, tasks.softDelete);
 router.post("/tasks/:id/restore", requireAuth, requireAdmin, tasks.restore);
+
+// Monday meeting agenda and discussion scheduling (admin only).
+router.get("/meetings", requireAuth, requireAdmin, meetings.listMeetings);
+router.get("/meetings/agenda", requireAuth, requireAdmin, meetings.getAgenda);
+router.post("/meetings/:date/save", requireAuth, requireAdmin, meetings.saveAgenda);
+router.patch("/meetings/:date", requireAuth, requireAdmin, meetings.updateMeeting);
+router.post("/meetings/:date/status", requireAuth, requireAdmin, meetings.setMeetingStatus);
+router.get("/meetings/:date/export", requireAuth, requireAdmin, meetings.exportAgenda);
+router.post("/meetings/:date/items", requireAuth, requireAdmin, meetings.addAgendaItem);
+router.delete("/meetings/:date/items/:taskId", requireAuth, requireAdmin, meetings.removeAgendaItem);
+router.post("/meetings/:date/items/:taskId/outcome", requireAuth, requireAdmin, meetings.recordOutcome);
+
+router.post("/schedule/initialize", requireAuth, requireAdmin, meetings.initializeSchedules);
+router.post("/schedule/review/propose", requireAuth, requireAdmin, meetings.proposeReviewChanges);
+router.post("/schedule/review/apply", requireAuth, requireAdmin, meetings.applyReviewChanges);
+router.patch("/schedule/tasks/:id", requireAuth, requireAdmin, meetings.updateSchedule);
+router.post("/schedule/tasks/:id/defer", requireAuth, requireAdmin, meetings.deferTask);
+router.post("/schedule/tasks/:id/bring-forward", requireAuth, requireAdmin, meetings.bringTaskForward);
+router.post("/schedule/tasks/:id/complete", requireAuth, requireAdmin, meetings.completeTask);
+router.get("/schedule/tasks/:id/history", requireAuth, requireAdmin, meetings.taskHistory);
 
 router.get("/dashboard/stats", requireAuth, dashboard.stats);
 router.get("/dashboard/task-status", requireAuth, dashboard.taskStatus);

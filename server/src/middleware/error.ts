@@ -5,7 +5,7 @@ export function notFound(req: Request, res: Response): void {
 }
 
 export function errorHandler(
-  err: Error & { status?: number },
+  err: Error & { status?: number; code?: unknown },
   _req: Request,
   res: Response,
   _next: NextFunction
@@ -14,5 +14,8 @@ export function errorHandler(
   if (status >= 500) {
     console.error(err);
   }
-  res.status(status).json({ error: err.message || "Internal server error" });
+  res.status(status).json({
+    error: err.message || "Internal server error",
+    ...(status < 500 && typeof err.code === "string" && { code: err.code }),
+  });
 }
