@@ -25,15 +25,15 @@ const officers = [
   { designation: "Sr.DEN/TRACK", mobileNumber: "9794837206" },
 
   { designation: "PRO/PRYJ", mobileNumber: "9794866933" },
-  { designation: "Sr.DCM/Coaching", mobileNumber: "9794837950" },
+  { designation: "Sr.DCM/Chg", mobileNumber: "9794837950" },
   { designation: "Sr.DCM/Freight", mobileNumber: "9794837952" },
 
-  { designation: "Sr.DOM/Co-ord", mobileNumber: "9794837900" },
+  { designation: "Sr.DOM/Co", mobileNumber: "9794837900" },
   { designation: "Sr.DOM/G&G", mobileNumber: "9794837902" },
 
   { designation: "Sr.DEE/G", mobileNumber: "9794837302" },
   { designation: "Sr.DEE/OP", mobileNumber: "9794837301" },
-  { designation: "Sr.DEE/Coaching", mobileNumber: "9794837308" },
+  { designation: "Sr.DEE/Chg", mobileNumber: "9794837308" },
   { designation: "Sr.DEE/TRD", mobileNumber: "9794837300" },
   { designation: "Sr.DEE/TRS/CNB", mobileNumber: "9794837305" },
   { designation: "Sr.DEE/TMS/CNB", mobileNumber: "9794837304" },
@@ -44,9 +44,9 @@ const officers = [
   { designation: "Sr.DEnHM", mobileNumber: "9794837051" },
 
   { designation: "Sr.DME/O&F", mobileNumber: "9794837400" },
-  { designation: "Sr.DME/Coaching", mobileNumber: "9794837401" },
+  { designation: "Sr.DME/Chg", mobileNumber: "9794837401" },
 
-  { designation: "Sr.DSTE/Co-ord", mobileNumber: "9794837800" },
+  { designation: "Sr.DSTE/Co", mobileNumber: "9794837800" },
   { designation: "Sr.DSTE/Signal/PRYJ", mobileNumber:"9794837802" },
   { designation: "Sr.DSTE/CNB", mobileNumber: "9794837801" },
   { designation: "Sr.DSTE/ALJN", mobileNumber: "9794837804" },
@@ -64,6 +64,16 @@ const officers = [
   { designation: "CPM/GSU", mobileNumber: "7388948962" },
 
 ];
+// Old designation names that were renamed ("Coaching" and "Chg" are the same
+// post). Existing officers are renamed so the same officer doesn't show up twice.
+const renamedDesignations = [
+  { from: "Sr.DCM/Coaching", to: "Sr.DCM/Chg" },
+  { from: "Sr.DEE/Coaching", to: "Sr.DEE/Chg" },
+  { from: "Sr.DME/Coaching", to: "Sr.DME/Chg" },
+  { from: "Sr.DOM/Co-ord", to: "Sr.DOM/Co" },
+  { from: "Sr.DSTE/Co-ord", to: "Sr.DSTE/Co" },
+];
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -73,6 +83,17 @@ function slugify(value: string) {
 async function main() {
   let updated = 0;
   let created = 0;
+
+  for (const { from, to } of renamedDesignations) {
+    const result = await prisma.user.updateMany({
+      where: { designation: { equals: from, mode: "insensitive" } },
+      data: { designation: to },
+    });
+
+    if (result.count > 0) {
+      console.log(`🔁 Renamed: ${from} -> ${to} (${result.count})`);
+    }
+  }
 
   for (const officer of officers) {
     const existing = await prisma.user.findFirst({

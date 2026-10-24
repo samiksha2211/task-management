@@ -44,7 +44,6 @@ export const DESIGNATIONS = [
   "Sr.DSC",
   "All BOs",
   "All Concerned BOs",
-  "Sr.DCM/Chg, Sr.DSC",
   "All Sr.DENs",
   "All Sr.DSTEs",
   "CPM/GSU",
