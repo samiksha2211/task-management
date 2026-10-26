@@ -133,13 +133,9 @@ export async function syncPendingTasks(): Promise<SyncResult> {
       additionalOfficerIds,
 
       status: item.status,
-      priority: item.priority ?? null,
       ...(item.discussionFrequency && {
         discussionFrequency: item.discussionFrequency,
         monthlyMondayOrdinal: item.monthlyMondayOrdinal ?? null,
-      }),
-      ...(item.estimatedDiscussionMinutes && {
-        estimatedDiscussionMinutes: item.estimatedDiscussionMinutes,
       }),
       clientRequestId: item.clientRequestId,
       }),

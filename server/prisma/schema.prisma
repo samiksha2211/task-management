@@ -33,6 +33,8 @@ model User {
 
 model Task {
   id          String   @id @default(cuid())
+  // Readable task ID shown in the app and PDFs.
+  taskNumber  Int      @unique @default(autoincrement())
   title       String
   description String?
   date        DateTime
@@ -61,7 +63,7 @@ model Task {
   // untouched: a task with no discussionFrequency is "not yet scheduled" and
   // never appears on an agenda until a user assigns one.
   discussionFrequency        DiscussionFrequency?
-  // NM tasks: which Monday of the following month (1-4, or -1 = last). Null = first.
+  // MONTHLY tasks: which Monday of the following month (1-4, or -1 = last). Null = first.
   monthlyMondayOrdinal       Int?
   lastDiscussedAt            DateTime?            @db.Date
   nextDiscussionDate         DateTime?            @db.Date
@@ -115,7 +117,7 @@ model MeetingAgendaItem {
   section                AgendaSection
   inclusion              AgendaInclusion
   reason                 String
-  estimatedMinutes       Int
+  estimatedMinutes       Int                @default(0)
   outcome                AgendaOutcome   @default(PENDING)
   discussionNotes        String?
   decisions              String?
@@ -161,9 +163,9 @@ model TaskScheduleEvent {
 }
 
 enum DiscussionFrequency {
-  M
-  F
-  NM
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
 }
 
 enum ScheduleState {

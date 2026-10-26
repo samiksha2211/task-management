@@ -114,78 +114,41 @@ npm run db:studio    # prisma studio
 
 ## Monday meeting scheduling
 
-The **Monday Meeting** page (`/meetings`, admin only) builds the agenda for a chosen Monday.
-All rules live in `server/src/services/scheduling/rules.ts` (pure functions, unit-tested);
-`repository.ts` and `actions.ts` apply them to the database.
+The **Monday Meeting** page (`/meetings`, admin only) has three cycle cards (Weekly, Fortnightly,
+Monthly) and a Monday Agenda card. Each cycle card opens a register of **every** task in that
+cycle, in any status, with search, a status filter, sorting, a per-row cycle selector and a
+**Download PDF** button. Task status (Pending / Overdue / Completed) is shown, never used for scheduling.
 
-### Frequencies
+Rules live in `server/src/services/scheduling/rules.ts` (pure functions, unit-tested).
 
-| Code | Meaning     | Next discussion after a discussion on day *D* |
-| ---- | ----------- | --------------------------------------------- |
-| M    | Weekly      | The Monday after *D* |
-| F    | Fortnightly | *D* + 14 days (the Monday on or after, if *D* was not a Monday) |
-| NM   | Next Month  | The chosen Monday (first by default; 2nd/3rd/4th/last selectable) of the month after *D* |
+| Cycle       | First discussion (never discussed) | After a discussion on day *D* |
+| ----------- | ---------------------------------- | ----------------------------- |
+| WEEKLY      | The upcoming Monday | The Monday after *D* |
+| FORTNIGHTLY | The upcoming Monday | *D* + 14 days (the Monday on or after) |
+| MONTHLY     | Chosen Monday of next month (first by default) | Chosen Monday of the month after *D* |
 
-A task with no frequency is never on an agenda. Existing tasks start that way and are given a
-frequency from the page's **Without frequency** tab; nothing is assigned automatically.
-
-A new task (or a task given a frequency for the first time) goes to the upcoming Monday if it is
-urgent or high priority, blocked, flagged, or due before the following Monday. Otherwise weekly
-tasks go to the upcoming Monday, fortnightly ones within two weeks (bulk assignments are spread over
-the next two Mondays) and NM ones to the designated Monday of next month. A deadline earlier than
-that slot pulls the date to the Monday before the deadline.
-
-### Agenda precedence
-
-1. Completed, deleted or cancelled tasks are excluded.
-2. Tasks brought forward to the meeting are included (section *Urgent*).
-3. Tasks explicitly added to the meeting are included.
-4. Otherwise a task is included only if its next discussion date is on or before the meeting date
-   (a missed date carries over).
-5. Frequency alone never puts a task on an agenda.
-6. A task appears at most once per meeting (unique `meetingId + taskId`).
-
-Only **Mark as discussed** moves a task's schedule, and it can be undone. Deferring keeps the
-frequency and records the original date and reason; urgent, blocked, overdue and brought-forward
-tasks need an explicit confirmation. Bringing a task forward does not change its frequency.
-When the agenda exceeds the meeting time, the page suggests non-urgent tasks to defer to the next
-Monday; nothing moves until confirmed. Every change is recorded in `TaskScheduleEvent`.
-
-### Settings (server environment)
-
-| Variable                         | Default        | Meaning |
-| -------------------------------- | -------------- | ------- |
-| `MEETING_TIME_ZONE`              | `Asia/Kolkata` | Time zone used for "today" and "upcoming Monday" |
-| `MEETING_DURATION_LIMIT_MINUTES` | `90`           | Default meeting length (editable per meeting) |
-| `DEFAULT_DISCUSSION_MINUTES`     | `3`            | Discussion time for a task with no estimate |
-
-Deferral ranking weights are in `server/src/services/scheduling/config.ts`.
+- A task is on a Monday's agenda only if its next discussion date is on or before that Monday,
+  so a task appears at most once per meeting (also enforced by a unique `meetingId + taskId` key).
+- Only ticking **Discussed** moves a task's schedule; it can be unticked to restore the previous date.
+- **Reschedule** moves one task's next discussion to another Monday without changing its cycle.
+- Changing a cycle recalculates only the future date; past discussions are kept.
+- Tasks without a cycle are never on an agenda and are listed under "Assign cycles".
+- `MEETING_TIME_ZONE` (default `Asia/Kolkata`) decides what "today" is.
 
 ### API (admin only)
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
-| GET    | `/api/meetings/agenda?date=YYYY-MM-DD` | Agenda, load, deferral suggestions, unscheduled and flagged tasks |
-| GET    | `/api/meetings` | Recent meetings |
-| POST   | `/api/meetings/:date/save` | Save or refresh a draft agenda (idempotent) |
-| PATCH  | `/api/meetings/:date` | Meeting time limit, notes, attached Monday PDF |
-| POST   | `/api/meetings/:date/status` | `DRAFT` / `FINALIZED` / `CLOSED` |
-| POST   | `/api/meetings/:date/items` | Add a task to this meeting once |
-| DELETE | `/api/meetings/:date/items/:taskId` | Remove a manually added item |
-| POST   | `/api/meetings/:date/items/:taskId/outcome` | Discussed / not discussed / pending, with notes and decisions |
-| GET    | `/api/meetings/:date/export?format=xlsx` | Excel export (`format=csv` for CSV) |
-| POST   | `/api/schedule/initialize` | Give unscheduled tasks a frequency in bulk |
-| PATCH  | `/api/schedule/tasks/:id` | Frequency, priority, estimate, blocked/flag, review note, agreed date |
-| POST   | `/api/schedule/tasks/:id/defer` | Defer to a later Monday |
-| POST   | `/api/schedule/tasks/:id/bring-forward` | Bring forward to a meeting |
-| POST   | `/api/schedule/tasks/:id/complete` | Mark completed |
-| GET    | `/api/schedule/tasks/:id/history` | Meetings and scheduling changes |
-| POST   | `/api/schedule/review/propose` | Proposals from Monday PDF review edits (no writes) |
-| POST   | `/api/schedule/review/apply` | Apply confirmed review edits |
+| GET    | `/api/meetings/register` | All tasks with cycle, status, dates, latest remarks; counts per cycle |
+| GET    | `/api/meetings/register/pdf?cycle=WEEKLY&status=all` | Cycle register PDF (`status`: all, pending, overdue, completed) |
+| GET    | `/api/meetings/agenda?date=YYYY-MM-DD` | Tasks due on a Monday |
+| POST   | `/api/meetings/:date/items/:taskId/outcome` | `{ outcome: "DISCUSSED" | "PENDING" }` |
+| GET    | `/api/meetings/:date/export?format=pdf|xlsx|csv` | Agenda download |
+| PATCH  | `/api/schedule/tasks/:id/cycle` | `{ cycle, monthlyMondayOrdinal? }` |
+| POST   | `/api/schedule/cycle` | Same, for many tasks: `{ taskIds, cycle }` |
+| POST   | `/api/schedule/tasks/:id/reschedule` | `{ toDate, reason? }` |
+| GET    | `/api/schedule/tasks/:id/history` | Scheduling history |
 
-PDFs are not parsed. The Monday PDF can be attached to a meeting, and changes are recorded in the
-**PDF review** tab; `proposeReview` in `rules.ts` is where automatic extraction can plug in later.
-
-The production database was created without Prisma migration history, so the scheduling migration
-(`server/prisma/migrations/20261024120000_add_meeting_scheduling`) was applied with
-`prisma db execute`. Do not run `prisma migrate dev` against it; it would offer to reset the database.
+The production database was created without Prisma migration history, so the scheduling
+migrations in `server/prisma/migrations` were applied with `prisma db execute`. Do not run
+`prisma migrate dev` against it; it would offer to reset the database.

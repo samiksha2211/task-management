@@ -1,25 +1,21 @@
 import { apiFetch, getToken } from "./api";
 
-export type Frequency = "M" | "F" | "NM";
-export type Priority = "URGENT" | "HIGH" | "NORMAL" | "LOW";
-export type AgendaSection = "URGENT" | "BLOCKED_OVERDUE" | "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "NEW";
-export type AgendaOutcome = "PENDING" | "DISCUSSED" | "NOT_DISCUSSED" | "DEFERRED";
-export type MeetingStatus = "DRAFT" | "FINALIZED" | "CLOSED";
+export type Cycle = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY";
+export type TaskStatusLabel = "Pending" | "Overdue" | "Completed";
 
-export const FREQUENCY_OPTIONS: { value: Frequency; label: string; hint: string }[] = [
-  { value: "M", label: "M — Weekly", hint: "Discussed every Monday" },
-  { value: "F", label: "F — Fortnightly", hint: "Every two weeks after the last discussion" },
-  { value: "NM", label: "NM — Next Month", hint: "A set Monday of the following month" },
-];
+export const CYCLES: Cycle[] = ["WEEKLY", "FORTNIGHTLY", "MONTHLY"];
 
-export const FREQUENCY_SHORT: Record<Frequency, string> = { M: "Weekly", F: "Fortnightly", NM: "Next Month" };
+export const CYCLE_LABEL: Record<Cycle, string> = {
+  WEEKLY: "Weekly",
+  FORTNIGHTLY: "Fortnightly",
+  MONTHLY: "Monthly",
+};
 
-export const PRIORITY_OPTIONS: { value: Priority; label: string }[] = [
-  { value: "URGENT", label: "Urgent" },
-  { value: "HIGH", label: "High" },
-  { value: "NORMAL", label: "Normal" },
-  { value: "LOW", label: "Low" },
-];
+export const CYCLE_HINT: Record<Cycle, string> = {
+  WEEKLY: "Discussed every Monday",
+  FORTNIGHTLY: "Every two weeks after the last discussion",
+  MONTHLY: "A set Monday of the following month",
+};
 
 export const ORDINAL_OPTIONS: { value: number; label: string }[] = [
   { value: 1, label: "First Monday" },
@@ -29,102 +25,54 @@ export const ORDINAL_OPTIONS: { value: number; label: string }[] = [
   { value: -1, label: "Last Monday" },
 ];
 
-export interface AgendaItem {
-  taskId: string;
+export interface RegisterTask {
+  id: string;
+  taskNumber: number;
   title: string;
   officer: string;
-  status: "Pending" | "Completed" | "Overdue";
+  status: TaskStatusLabel;
   dueDate: string;
-  frequency: Frequency | null;
+  cycle: Cycle | null;
   monthlyMondayOrdinal: number | null;
-  priority: Priority;
+  nextDiscussionDate: string | null;
   lastDiscussedAt: string | null;
-  nextDiscussionDate: string | null;
-  originalDiscussionDate: string | null;
-  scheduleState: string;
+  rescheduled: boolean;
   scheduleReason: string | null;
-  isBlocked: boolean;
-  flaggedForReview: boolean;
-  latestReviewNote: string | null;
-  estimatedMinutes: number;
-  section: AgendaSection;
-  inclusion: "DUE" | "BROUGHT_FORWARD" | "MANUAL";
+  remarks: string;
+}
+
+export interface RegisterResponse {
+  today: string;
+  upcomingMonday: string;
+  counts: Record<Cycle | "UNASSIGNED", number>;
+  tasks: RegisterTask[];
+}
+
+export interface AgendaTask extends RegisterTask {
   reason: string;
-  outcome: AgendaOutcome;
-  discussionNotes: string | null;
-  decisions: string | null;
-  deferredTo: string | null;
-  deferReason: string | null;
-  stored: boolean;
+  inclusion: "DUE" | "BROUGHT_FORWARD" | "MANUAL";
+  outcome: "PENDING" | "DISCUSSED" | "NOT_DISCUSSED" | "DEFERRED";
+  notes: string | null;
 }
 
-export interface BriefTask {
-  taskId: string;
-  title: string;
-  officer: string;
-  status: "Pending" | "Completed" | "Overdue";
-  dueDate: string;
-  priority: Priority;
-  frequency: Frequency | null;
-  nextDiscussionDate: string | null;
-  latestReviewNote: string | null;
-  createdAt: string;
-}
-
-export interface AgendaView {
+export interface AgendaResponse {
   meetingDate: string;
   today: string;
   upcomingMonday: string;
-  defaults: { meetingMinutes: number; discussionMinutes: number };
-  meeting: {
-    id: string;
-    meetingDate: string;
-    status: MeetingStatus;
-    durationLimitMinutes: number;
-    notes: string | null;
-    reportUrl: string | null;
-    reportName: string | null;
-    finalizedAt: string | null;
-    closedAt: string | null;
-  } | null;
-  unsavedChanges: number;
-  sections: { key: AgendaSection; label: string; items: AgendaItem[] }[];
-  load: { taskCount: number; totalMinutes: number; limitMinutes: number; overBy: number; overloaded: boolean };
-  recommendations: { taskId: string; suggestedDate: string; minutes: number; reason: string }[];
-  unscheduled: BriefTask[];
-  flagged: BriefTask[];
+  items: AgendaTask[];
 }
 
 export interface HistoryResponse {
-  task: {
-    id: string;
-    title: string;
-    frequency: Frequency | null;
-    lastDiscussedAt: string | null;
-    nextDiscussionDate: string | null;
-    scheduleState: string;
-    scheduleReason: string | null;
-  };
-  meetings: {
-    meetingDate: string;
-    section: AgendaSection;
-    outcome: AgendaOutcome;
-    reason: string;
-    discussionNotes: string | null;
-    decisions: string | null;
-    deferredTo: string | null;
-    deferReason: string | null;
-  }[];
+  meetings: { meetingDate: string; outcome: string; notes: string | null }[];
   events: {
     id: string;
     type: string;
     createdAt: string;
     by: string | null;
-    meetingDate: string | null;
     fromDate: string | null;
     toDate: string | null;
-    fromFrequency: Frequency | null;
-    toFrequency: Frequency | null;
+    fromCycle: Cycle | null;
+    toCycle: Cycle | null;
     reason: string | null;
   }[];
 }
@@ -153,8 +101,7 @@ export function fmtDay(date: string | null | undefined): string {
 }
 
 export function fmtMonday(date: string): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  return d.toLocaleDateString("en-GB", {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", {
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -163,102 +110,43 @@ export function fmtMonday(date: string): string {
   });
 }
 
+export const getRegister = () => apiFetch<RegisterResponse>("/api/meetings/register");
+
 export const getAgenda = (date?: string) =>
-  apiFetch<AgendaView>(`/api/meetings/agenda${date ? `?date=${date}` : ""}`);
+  apiFetch<AgendaResponse>(`/api/meetings/agenda${date ? `?date=${date}` : ""}`);
 
-export const saveAgenda = (date: string) =>
-  apiFetch<AgendaView>(`/api/meetings/${date}/save`, { method: "POST" });
-
-export const updateMeeting = (
-  date: string,
-  body: Partial<{ durationLimitMinutes: number; notes: string | null; reportUrl: string | null; reportName: string | null }>
-) => apiFetch<AgendaView>(`/api/meetings/${date}`, { method: "PATCH", body: JSON.stringify(body) });
-
-export const setMeetingStatus = (date: string, status: MeetingStatus) =>
-  apiFetch<AgendaView>(`/api/meetings/${date}/status`, { method: "POST", body: JSON.stringify({ status }) });
-
-export const addAgendaItem = (date: string, taskId: string, reason: string) =>
-  apiFetch<AgendaView>(`/api/meetings/${date}/items`, { method: "POST", body: JSON.stringify({ taskId, reason }) });
-
-export const removeAgendaItem = (date: string, taskId: string) =>
-  apiFetch<AgendaView>(`/api/meetings/${date}/items/${taskId}`, { method: "DELETE" });
-
-export const recordOutcome = (
-  date: string,
-  taskId: string,
-  body: { outcome: "PENDING" | "DISCUSSED" | "NOT_DISCUSSED"; discussionNotes?: string | null; decisions?: string | null }
-) =>
-  apiFetch<AgendaView>(`/api/meetings/${date}/items/${taskId}/outcome`, {
-    method: "POST",
-    body: JSON.stringify(body),
+export const setCycle = (taskId: string, cycle: Cycle | null, monthlyMondayOrdinal?: number | null) =>
+  apiFetch(`/api/schedule/tasks/${taskId}/cycle`, {
+    method: "PATCH",
+    body: JSON.stringify({ cycle, monthlyMondayOrdinal }),
   });
 
-export const deferTask = (
-  taskId: string,
-  body: { toDate: string; reason: string; meetingDate?: string; confirmed?: boolean }
-) => apiFetch(`/api/schedule/tasks/${taskId}/defer`, { method: "POST", body: JSON.stringify(body) });
-
-export const bringForward = (taskId: string, body: { toDate?: string; reason: string }) =>
-  apiFetch(`/api/schedule/tasks/${taskId}/bring-forward`, { method: "POST", body: JSON.stringify(body) });
-
-export const updateSchedule = (
-  taskId: string,
-  body: Partial<{
-    discussionFrequency: Frequency | null;
-    monthlyMondayOrdinal: number | null;
-    recalculate: boolean;
-    priority: string | null;
-    estimatedDiscussionMinutes: number | null;
-    isBlocked: boolean;
-    flaggedForReview: boolean;
-    latestReviewNote: string | null;
-    pinnedDate: string | null;
-    cancelled: boolean;
-    reason: string | null;
-  }>
-) => apiFetch(`/api/schedule/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify(body) });
-
-export const completeTask = (taskId: string, reason?: string) =>
-  apiFetch(`/api/schedule/tasks/${taskId}/complete`, { method: "POST", body: JSON.stringify({ reason }) });
-
-export const initializeSchedules = (taskIds: string[], discussionFrequency: Frequency, monthlyMondayOrdinal?: number | null) =>
-  apiFetch<{ initialized: number }>("/api/schedule/initialize", {
+export const setCycleBulk = (taskIds: string[], cycle: Cycle | null, monthlyMondayOrdinal?: number | null) =>
+  apiFetch<{ updated: number }>("/api/schedule/cycle", {
     method: "POST",
-    body: JSON.stringify({ taskIds, discussionFrequency, monthlyMondayOrdinal: monthlyMondayOrdinal ?? null }),
+    body: JSON.stringify({ taskIds, cycle, monthlyMondayOrdinal }),
+  });
+
+export const rescheduleTask = (taskId: string, toDate: string, reason?: string) =>
+  apiFetch(`/api/schedule/tasks/${taskId}/reschedule`, {
+    method: "POST",
+    body: JSON.stringify({ toDate, reason }),
+  });
+
+export const markDiscussed = (date: string, taskId: string, discussed: boolean) =>
+  apiFetch<AgendaResponse>(`/api/meetings/${date}/items/${taskId}/outcome`, {
+    method: "POST",
+    body: JSON.stringify({ outcome: discussed ? "DISCUSSED" : "PENDING" }),
   });
 
 export const getHistory = (taskId: string) => apiFetch<HistoryResponse>(`/api/schedule/tasks/${taskId}/history`);
 
-export interface ReviewUpdate {
-  taskId: string;
-  priority?: string | null;
-  isBlocked?: boolean;
-  flaggedForReview?: boolean;
-  latestReviewNote?: string | null;
-  needsDiscussion?: boolean;
-  bringForward?: boolean;
-  reason?: string;
-}
-
-export const proposeReview = (meetingDate: string, updates: ReviewUpdate[]) =>
-  apiFetch<{ proposals: { taskId: string; action: "BRING_FORWARD" | "KEEP" | "NONE"; toDate: string | null; reason: string }[] }>(
-    "/api/schedule/review/propose",
-    { method: "POST", body: JSON.stringify({ meetingDate, updates }) }
-  );
-
-export const applyReview = (meetingDate: string, updates: ReviewUpdate[]) =>
-  apiFetch<{ results: { taskId: string; ok: boolean; error?: string; broughtForward?: boolean }[] }>(
-    "/api/schedule/review/apply",
-    { method: "POST", body: JSON.stringify({ meetingDate, updates }) }
-  );
-
-export async function downloadAgenda(date: string, format: "xlsx" | "csv"): Promise<void> {
+/** Download a file from an authenticated API route. */
+async function download(url: string, fallbackName: string): Promise<void> {
   const token = getToken();
-  const res = await fetch(`/api/meetings/${date}/export?format=${format}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) {
-    let message = "Failed to export the agenda";
+    let message = "Download failed";
     try {
       const body = (await res.json()) as { error?: string };
       if (body?.error) message = body.error;
@@ -269,12 +157,18 @@ export async function downloadAgenda(date: string, format: "xlsx" | "csv"): Prom
   }
   const blob = await res.blob();
   const match = /filename="?([^"]+)"?/.exec(res.headers.get("Content-Disposition") ?? "");
-  const url = URL.createObjectURL(blob);
+  const href = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = match?.[1] || `monday_agenda_${date}.${format}`;
+  anchor.href = href;
+  anchor.download = match?.[1] || fallbackName;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(href);
 }
+
+export const downloadRegisterPdf = (cycle: Cycle, status: "all" | "pending" | "overdue" | "completed" = "all") =>
+  download(`/api/meetings/register/pdf?cycle=${cycle}&status=${status}`, `${cycle.toLowerCase()}_task_register.pdf`);
+
+export const downloadAgenda = (date: string, format: "pdf" | "xlsx") =>
+  download(`/api/meetings/${date}/export?format=${format}`, `monday_agenda_${date}.${format}`);

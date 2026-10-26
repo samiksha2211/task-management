@@ -42,6 +42,7 @@ export function isOverdue(dueDate: Date): boolean {
 
 export interface SerializedTask {
   id: string;
+  taskNumber: number;
   title: string;
   description: string | null;
 
@@ -67,7 +68,7 @@ export interface SerializedTask {
   priority: string | null;
 
   // Monday meeting scheduling
-  discussionFrequency: "M" | "F" | "NM" | null;
+  discussionFrequency: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
   monthlyMondayOrdinal: number | null;
   lastDiscussedAt: string | null;
   nextDiscussionDate: string | null;
@@ -149,6 +150,7 @@ export function serializeTask(
 
   return {
     id: task.id,
+    taskNumber: task.taskNumber,
 
     title: task.title,
     description: task.description,

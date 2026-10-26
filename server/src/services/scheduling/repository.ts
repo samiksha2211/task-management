@@ -1,50 +1,27 @@
 // Glue between the Prisma models and the pure scheduling rules: converting
-// rows to rule inputs, writing schedule patches with an audit event, and
+// rows to rule inputs, writing schedule changes with an audit event, and
 // keeping a stored meeting agenda in step with the rules.
 
-import type {
-  Meeting,
-  MeetingAgendaItem,
-  Prisma,
-  ScheduleEventType,
-  Task,
-} from "@prisma/client";
-import { defaultSchedulingConfig, type SchedulingConfig } from "./config";
-import {
-  fromISODate,
-  fromISODateOrNull,
-  todayISO,
-  toISODate,
-  toISODateOrNull,
-  type ISODate,
-} from "./dates";
-import {
-  buildAgenda,
-  type AgendaResult,
-  type ExistingAgendaItem,
-  type SchedulableTask,
-  type SchedulePatch,
-} from "./rules";
+import type { Meeting, MeetingAgendaItem, Prisma, ScheduleEventType, Task } from "@prisma/client";
+import { defaultSchedulingConfig } from "./config";
+import { fromISODate, fromISODateOrNull, todayISO, toISODate, toISODateOrNull, type ISODate } from "./dates";
+import { buildAgenda, type AgendaResult, type ExistingAgendaItem, type SchedulableTask, type SchedulePatch } from "./rules";
 
 export type Tx = Prisma.TransactionClient;
 
-export function schedulingConfig(): SchedulingConfig {
-  return defaultSchedulingConfig;
-}
+/** Options for interactive transactions over a remote database. */
+export const TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 };
 
 export function today(): ISODate {
-  return todayISO(schedulingConfig().timeZone);
+  return todayISO(defaultSchedulingConfig.timeZone);
 }
 
 export function toSchedulable(task: Task): SchedulableTask {
-  const config = schedulingConfig();
   return {
     id: task.id,
     title: task.title,
     status: task.status,
     deleted: task.deletedAt !== null,
-    createdOn: todayISO(config.timeZone, task.createdAt),
-    dueDate: toISODate(task.dueDate),
     frequency: task.discussionFrequency,
     monthlyMondayOrdinal: task.monthlyMondayOrdinal,
     lastDiscussedAt: toISODateOrNull(task.lastDiscussedAt),
@@ -52,10 +29,6 @@ export function toSchedulable(task: Task): SchedulableTask {
     originalDiscussionDate: toISODateOrNull(task.originalDiscussionDate),
     scheduleState: task.scheduleState,
     scheduleReason: task.scheduleReason,
-    priority: task.priority,
-    isBlocked: task.isBlocked,
-    flaggedForReview: task.flaggedForReview,
-    estimatedMinutes: task.estimatedDiscussionMinutes,
   };
 }
 
@@ -100,18 +73,14 @@ export async function logEvent(tx: Tx, event: EventInput): Promise<void> {
   });
 }
 
-/** Write a schedule patch to a task and record it in the audit trail. */
+/** Write a schedule change to a task and record it in the history. */
 export async function applyPatch(
   tx: Tx,
   task: Task,
   patch: SchedulePatch,
-  event: Omit<EventInput, "taskId" | "fromDate" | "toDate" | "fromFrequency" | "toFrequency">,
-  extra: Prisma.TaskUncheckedUpdateInput = {}
+  event: Pick<EventInput, "type" | "userId" | "meetingId" | "reason">
 ): Promise<Task> {
-  const updated = await tx.task.update({
-    where: { id: task.id },
-    data: { ...patchToData(patch), ...extra },
-  });
+  const updated = await tx.task.update({ where: { id: task.id }, data: patchToData(patch) });
   await logEvent(tx, {
     ...event,
     taskId: task.id,
@@ -130,18 +99,18 @@ export function itemToExisting(item: MeetingAgendaItem): ExistingAgendaItem {
     section: item.section,
     inclusion: item.inclusion,
     reason: item.reason,
-    estimatedMinutes: item.estimatedMinutes,
     outcome: item.outcome,
   };
 }
 
-/** Tasks that can be on the agenda for this date, plus any already stored on it. */
-export async function loadAgendaTasks(
+/** Agenda for a date: tasks that can be due then, plus any already stored on it. */
+export async function computeAgenda(
   tx: Tx,
   meetingDate: ISODate,
-  storedTaskIds: string[] = []
-): Promise<Task[]> {
-  return tx.task.findMany({
+  storedItems: MeetingAgendaItem[]
+): Promise<{ tasks: Task[]; result: AgendaResult }> {
+  const storedIds = storedItems.map((i) => i.taskId);
+  const tasks = await tx.task.findMany({
     where: {
       OR: [
         {
@@ -150,27 +119,14 @@ export async function loadAgendaTasks(
           scheduleState: { not: "CANCELLED" },
           nextDiscussionDate: { lte: fromISODate(meetingDate) },
         },
-        ...(storedTaskIds.length ? [{ id: { in: storedTaskIds } }] : []),
+        ...(storedIds.length ? [{ id: { in: storedIds } }] : []),
       ],
     },
   });
-}
-
-export async function computeAgenda(
-  tx: Tx,
-  meetingDate: ISODate,
-  storedItems: MeetingAgendaItem[]
-): Promise<{ tasks: Task[]; result: AgendaResult }> {
-  const tasks = await loadAgendaTasks(
-    tx,
-    meetingDate,
-    storedItems.map((i) => i.taskId)
-  );
   const result = buildAgenda({
     meetingDate,
     tasks: tasks.map(toSchedulable),
     existingItems: storedItems.map(itemToExisting),
-    config: schedulingConfig(),
   });
   return { tasks, result };
 }
@@ -178,31 +134,17 @@ export async function computeAgenda(
 /**
  * Bring the stored agenda of a meeting in line with the rules: add newly due
  * tasks, refresh pending ones, remove pending ones that are no longer due.
- * Items with a recorded outcome are never touched. Safe to call repeatedly.
+ * Items with a recorded outcome are never touched. Safe to call repeatedly;
+ * the (meetingId, taskId) unique key prevents duplicates.
  */
-export async function syncMeetingAgenda(tx: Tx, meeting: Meeting, userId?: string): Promise<void> {
+export async function syncMeetingAgenda(tx: Tx, meeting: Meeting): Promise<void> {
   const meetingDate = toISODate(meeting.meetingDate);
   const stored = await tx.meetingAgendaItem.findMany({ where: { meetingId: meeting.id } });
   const { result } = await computeAgenda(tx, meetingDate, stored);
   const storedByTask = new Map(stored.map((i) => [i.taskId, i]));
-  const date = fromISODate(meetingDate);
 
   const toCreate = result.entries.filter((e) => !e.locked && !storedByTask.has(e.taskId));
-  const toUpdate = result.entries.filter((e) => {
-    const existing = storedByTask.get(e.taskId);
-    return (
-      !e.locked &&
-      !!existing &&
-      (existing.section !== e.section ||
-        existing.reason !== e.reason ||
-        existing.estimatedMinutes !== e.estimatedMinutes ||
-        existing.inclusion !== e.inclusion)
-    );
-  });
-
   if (toCreate.length) {
-    // skipDuplicates + the (meetingId, taskId) unique key make a concurrent
-    // regeneration harmless.
     await tx.meetingAgendaItem.createMany({
       data: toCreate.map((e) => ({
         meetingId: meeting.id,
@@ -210,62 +152,36 @@ export async function syncMeetingAgenda(tx: Tx, meeting: Meeting, userId?: strin
         section: e.section,
         inclusion: e.inclusion,
         reason: e.reason,
-        estimatedMinutes: e.estimatedMinutes,
       })),
       skipDuplicates: true,
     });
-    await tx.taskScheduleEvent.createMany({
-      data: toCreate.map((e) => ({
-        taskId: e.taskId,
-        type: "ADDED_TO_AGENDA" as const,
-        meetingId: meeting.id,
-        userId: userId ?? null,
-        toDate: date,
-        reason: e.reason,
-      })),
-    });
   }
 
-  for (const e of toUpdate) {
-    await tx.meetingAgendaItem.update({
-      where: { id: storedByTask.get(e.taskId)!.id },
-      data: {
-        section: e.section,
-        reason: e.reason,
-        estimatedMinutes: e.estimatedMinutes,
-        inclusion: e.inclusion,
-      },
-    });
+  for (const e of result.entries) {
+    const existing = storedByTask.get(e.taskId);
+    if (
+      !e.locked &&
+      existing &&
+      (existing.section !== e.section || existing.reason !== e.reason || existing.inclusion !== e.inclusion)
+    ) {
+      await tx.meetingAgendaItem.update({
+        where: { id: existing.id },
+        data: { section: e.section, reason: e.reason, inclusion: e.inclusion },
+      });
+    }
   }
 
   if (result.dropped.length) {
     await tx.meetingAgendaItem.deleteMany({
-      where: {
-        meetingId: meeting.id,
-        taskId: { in: result.dropped.map((d) => d.taskId) },
-        outcome: "PENDING",
-      },
-    });
-    await tx.taskScheduleEvent.createMany({
-      data: result.dropped.map((d) => ({
-        taskId: d.taskId,
-        type: "REMOVED_FROM_AGENDA" as const,
-        meetingId: meeting.id,
-        userId: userId ?? null,
-        fromDate: date,
-        reason: d.reason,
-      })),
+      where: { meetingId: meeting.id, taskId: { in: result.dropped.map((d) => d.taskId) }, outcome: "PENDING" },
     });
   }
 }
 
-/** Options for interactive transactions that touch a whole agenda over a remote database. */
-export const TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 };
-
-/** Re-sync every open (draft) meeting from today on, after a schedule change. */
-export async function syncOpenMeetings(tx: Tx, userId?: string): Promise<void> {
+/** Re-sync stored agendas of meetings from today on, after a schedule change. */
+export async function syncUpcomingMeetings(tx: Tx): Promise<void> {
   const meetings = await tx.meeting.findMany({
-    where: { status: "DRAFT", meetingDate: { gte: fromISODate(today()) } },
+    where: { meetingDate: { gte: fromISODate(today()) } },
   });
-  for (const meeting of meetings) await syncMeetingAgenda(tx, meeting, userId);
+  for (const meeting of meetings) await syncMeetingAgenda(tx, meeting);
 }

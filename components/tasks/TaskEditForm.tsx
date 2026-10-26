@@ -33,10 +33,7 @@ export default function TaskEditForm({ id }: { id?: string }) {
   const [actionPlanTdc, setActionPlanTdc] = useState("");
   const [schedule, setSchedule] = useState<ScheduleValue>(EMPTY_SCHEDULE);
   const [initialSchedule, setInitialSchedule] = useState<ScheduleValue>(EMPTY_SCHEDULE);
-  const [scheduleDates, setScheduleDates] = useState<{ next: string | null; last: string | null }>({
-    next: null,
-    last: null,
-  });
+  const [nextDiscussionDate, setNextDiscussionDate] = useState<string | null>(null);
   type BoRemarkItem = {
   id?: string;
   remark: string;
@@ -77,14 +74,12 @@ export default function TaskEditForm({ id }: { id?: string }) {
         setDescription(t.description ?? "");
         setRemarks(t.remarks ?? "");
         const loadedSchedule: ScheduleValue = {
-          frequency: t.discussionFrequency ?? "",
+          cycle: t.discussionFrequency ?? "",
           monthlyMondayOrdinal: t.monthlyMondayOrdinal ?? 1,
-          priority: (t.priority ?? "NORMAL").toUpperCase(),
-          estimatedMinutes: t.estimatedDiscussionMinutes ? String(t.estimatedDiscussionMinutes) : "",
         };
         setSchedule(loadedSchedule);
         setInitialSchedule(loadedSchedule);
-        setScheduleDates({ next: t.nextDiscussionDate ?? null, last: t.lastDiscussedAt ?? null });
+        setNextDiscussionDate(t.nextDiscussionDate ?? null);
         setActionPlanTdc(
           t.actionPlanTdc ? t.actionPlanTdc.slice(0, 10) : "" );
        
@@ -292,17 +287,11 @@ const removeBoRemark = async (index: number) => {
     // recalculates the meeting schedule.
     const nextSchedule = scheduleBody(schedule);
     const prevSchedule = scheduleBody(initialSchedule);
-    const scheduleChanges = {
-      priority: nextSchedule.priority,
-      ...((nextSchedule.discussionFrequency !== prevSchedule.discussionFrequency ||
-        nextSchedule.monthlyMondayOrdinal !== prevSchedule.monthlyMondayOrdinal) && {
-        discussionFrequency: nextSchedule.discussionFrequency,
-        monthlyMondayOrdinal: nextSchedule.monthlyMondayOrdinal,
-      }),
-      ...(nextSchedule.estimatedDiscussionMinutes !== prevSchedule.estimatedDiscussionMinutes && {
-        estimatedDiscussionMinutes: nextSchedule.estimatedDiscussionMinutes,
-      }),
-    };
+    const scheduleChanges =
+      nextSchedule.discussionFrequency !== prevSchedule.discussionFrequency ||
+      nextSchedule.monthlyMondayOrdinal !== prevSchedule.monthlyMondayOrdinal
+        ? nextSchedule
+        : {};
 
     // 3. Update the task
     const result = await apiFetch<{
@@ -513,8 +502,7 @@ for (const item of boRemarks) {
         <ScheduleFields
           value={schedule}
           onChange={setSchedule}
-          nextDiscussionDate={scheduleDates.next}
-          lastDiscussedAt={scheduleDates.last}
+          nextDiscussionDate={nextDiscussionDate}
         />
 
         <div className="form-group">

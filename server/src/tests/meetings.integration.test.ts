@@ -1,19 +1,18 @@
-// Integration tests for the meeting agenda / scheduling API against a real
-// PostgreSQL database.
+// Integration tests for the cycle registers, PDFs and Monday agenda against a
+// real PostgreSQL database.
 //
 // By default a throwaway PostgreSQL server is started with embedded-postgres
-// and every migration is applied to it from scratch. Set TEST_DATABASE_URL to
-// use an existing *empty test* database instead. The tests refuse to run
-// against the database in DATABASE_URL.
+// and every migration is applied from scratch. Set TEST_DATABASE_URL to use an
+// existing *empty test* database instead. Never runs against DATABASE_URL.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import type { Server } from "node:http";
 import type { PrismaClient } from "@prisma/client";
 import { addDays, mondayOnOrAfter, todayISO } from "../services/scheduling/dates";
 import { monthlySlot } from "../services/scheduling/rules";
@@ -58,12 +57,7 @@ async function startDatabase(): Promise<string> {
   return `postgresql://railwork_test:railwork_test@localhost:${port}/railwork_test`;
 }
 
-async function api(
-  method: string,
-  url: string,
-  body?: unknown,
-  token = adminToken
-): Promise<{ status: number; json: any; headers: Headers; buffer: Buffer }> {
+async function api(method: string, url: string, body?: unknown, token = adminToken) {
   const res = await fetch(`${baseUrl}${url}`, {
     method,
     headers: {
@@ -73,31 +67,26 @@ async function api(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const buffer = Buffer.from(await res.arrayBuffer());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let json: any = null;
   if ((res.headers.get("content-type") ?? "").includes("json")) json = JSON.parse(buffer.toString("utf8"));
   return { status: res.status, json, headers: res.headers, buffer };
 }
 
 async function createTask(title: string, extra: Record<string, unknown> = {}) {
-  const res = await api("POST", "/api/tasks", {
-    title,
-    date: today,
-    dueDate: addDays(today, 120),
-    officerId,
-    ...extra,
-  });
+  const res = await api("POST", "/api/tasks", { title, date: today, dueDate: addDays(today, 60), officerId, ...extra });
   assert.equal(res.status, 201, JSON.stringify(res.json));
-  return res.json.task as { id: string; nextDiscussionDate: string | null; discussionFrequency: string | null };
+  return res.json.task as { id: string; taskNumber: number; nextDiscussionDate: string | null };
 }
 
-function agendaTaskIds(agenda: any): string[] {
-  return agenda.sections.flatMap((s: any) => s.items.map((i: any) => i.taskId));
-}
-
-async function agenda(date: string) {
+async function agendaIds(date: string): Promise<string[]> {
   const res = await api("GET", `/api/meetings/agenda?date=${date}`);
   assert.equal(res.status, 200, JSON.stringify(res.json));
-  return res.json;
+  return res.json.items.map((i: { id: string }) => i.id);
+}
+
+function isPdf(buffer: Buffer): boolean {
+  return buffer.subarray(0, 5).toString() === "%PDF-";
 }
 
 before(async () => {
@@ -143,195 +132,116 @@ after(async () => {
   if (pgDir) fs.rmSync(pgDir, { recursive: true, force: true });
 });
 
-describe("meeting agenda API", () => {
+describe("discussion cycles", () => {
   const ids: Record<string, string> = {};
 
-  test("new tasks get a first discussion date from their frequency", async () => {
-    const weekly = await createTask("Weekly task", { discussionFrequency: "M" });
-    const fortnightly = await createTask("Fortnightly task", { discussionFrequency: "F" });
-    const monthly = await createTask("Monthly task", { discussionFrequency: "NM" });
-    const unscheduled = await createTask("Legacy task");
-    const done = await createTask("Completed task", { discussionFrequency: "M", status: "Completed" });
-    Object.assign(ids, {
-      weekly: weekly.id,
-      fortnightly: fortnightly.id,
-      monthly: monthly.id,
-      unscheduled: unscheduled.id,
-      done: done.id,
+  test("tasks get readable IDs and a first date from their cycle", async () => {
+    const weekly = await createTask("Weekly task", { discussionFrequency: "WEEKLY" });
+    const fortnightly = await createTask("Fortnightly task", { discussionFrequency: "FORTNIGHTLY" });
+    // Already past its deadline: still goes to next month, not this week.
+    const monthly = await createTask("Monthly overdue task", {
+      discussionFrequency: "MONTHLY",
+      dueDate: addDays(today, -30),
     });
+    const done = await createTask("Completed monthly task", { discussionFrequency: "MONTHLY", status: "Completed" });
+    const unassigned = await createTask("Unassigned task");
+    Object.assign(ids, { weekly: weekly.id, fortnightly: fortnightly.id, monthly: monthly.id, done: done.id, unassigned: unassigned.id });
 
+    assert.ok(weekly.taskNumber > 0 && fortnightly.taskNumber === weekly.taskNumber + 1);
     assert.equal(weekly.nextDiscussionDate, upcoming);
-    assert.equal(fortnightly.nextDiscussionDate, nextWeek);
+    assert.equal(fortnightly.nextDiscussionDate, upcoming);
     assert.equal(monthly.nextDiscussionDate, monthlySlot(today, 1));
-    assert.equal(unscheduled.discussionFrequency, null);
-    assert.equal(unscheduled.nextDiscussionDate, null);
+    assert.equal(unassigned.nextDiscussionDate, null);
   });
 
-  test("the agenda contains only tasks that are due, and lists unscheduled ones separately", async () => {
-    const view = await agenda(upcoming);
-    const onAgenda = agendaTaskIds(view);
-    assert.ok(onAgenda.includes(ids.weekly));
-    assert.ok(!onAgenda.includes(ids.fortnightly), "fortnightly is not due yet");
-    assert.ok(!onAgenda.includes(ids.unscheduled), "no frequency, no agenda");
-    assert.ok(!onAgenda.includes(ids.done), "completed tasks never appear");
-    assert.ok(view.unscheduled.some((t: any) => t.taskId === ids.unscheduled));
-    assert.equal(view.meeting, null, "viewing an agenda does not create a meeting");
+  test("the register lists every task with its status, and counts per cycle", async () => {
+    const res = await api("GET", "/api/meetings/register");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.json.counts, { WEEKLY: 1, FORTNIGHTLY: 1, MONTHLY: 2, UNASSIGNED: 1 });
+    const monthly = res.json.tasks.filter((t: { cycle: string }) => t.cycle === "MONTHLY");
+    assert.deepEqual(monthly.map((t: { status: string }) => t.status).sort(), ["Completed", "Overdue"]);
   });
 
-  test("saving the agenda twice does not create duplicate records", async () => {
-    assert.equal((await api("POST", `/api/meetings/${upcoming}/save`)).status, 200);
-    assert.equal((await api("POST", `/api/meetings/${upcoming}/save`)).status, 200);
-    const meetings = await prisma.meeting.findMany({ where: { meetingDate: new Date(`${upcoming}T00:00:00Z`) } });
-    assert.equal(meetings.length, 1);
-    const items = await prisma.meetingAgendaItem.findMany({ where: { meetingId: meetings[0].id, taskId: ids.weekly } });
-    assert.equal(items.length, 1);
+  test("each cycle downloads as a PDF with all statuses", async () => {
+    for (const cycle of ["WEEKLY", "FORTNIGHTLY", "MONTHLY"]) {
+      const res = await api("GET", `/api/meetings/register/pdf?cycle=${cycle}`);
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get("content-type"), "application/pdf");
+      assert.ok(isPdf(res.buffer));
+      assert.match(res.headers.get("content-disposition") ?? "", new RegExp(`${cycle.toLowerCase()}_task_register_`));
+    }
+    const filtered = await api("GET", "/api/meetings/register/pdf?cycle=MONTHLY&status=completed");
+    assert.equal(filtered.status, 200);
+    assert.ok(isPdf(filtered.buffer));
+    assert.equal((await api("GET", "/api/meetings/register/pdf?cycle=DAILY")).status, 400);
   });
 
-  test("a task cannot be added to the same meeting twice", async () => {
-    const first = await api("POST", `/api/meetings/${upcoming}/items`, { taskId: ids.fortnightly, reason: "Raised by DRM" });
-    assert.equal(first.status, 201, JSON.stringify(first.json));
-    const second = await api("POST", `/api/meetings/${upcoming}/items`, { taskId: ids.fortnightly, reason: "Again" });
-    assert.equal(second.status, 409);
-    const third = await api("POST", `/api/meetings/${upcoming}/items`, { taskId: ids.weekly, reason: "Already due" });
-    assert.equal(third.status, 409);
+  test("the agenda has only due tasks, each once, and never the monthly one this week", async () => {
+    const onAgenda = await agendaIds(upcoming);
+    assert.deepEqual(onAgenda.sort(), [ids.weekly, ids.fortnightly].sort());
   });
 
-  test("only an actual discussion moves the schedule, and it can be undone", async () => {
-    const url = `/api/meetings/${upcoming}/items/${ids.weekly}/outcome`;
-    let res = await api("POST", url, { outcome: "DISCUSSED", decisions: "Proceed with tender" });
-    assert.equal(res.status, 200, JSON.stringify(res.json));
-    let task = await prisma.task.findUniqueOrThrow({ where: { id: ids.weekly } });
-    assert.equal(task.lastDiscussedAt?.toISOString().slice(0, 10), upcoming);
-    assert.equal(task.nextDiscussionDate?.toISOString().slice(0, 10), nextWeek);
+  test("marking discussed moves only that task, persists, and can be undone", async () => {
+    const url = `/api/meetings/${upcoming}/items/${ids.fortnightly}/outcome`;
+    assert.equal((await api("POST", url, { outcome: "DISCUSSED" })).status, 200);
+    assert.equal((await api("POST", url, { outcome: "DISCUSSED" })).status, 200, "repeat is harmless");
+    let task = await prisma.task.findUniqueOrThrow({ where: { id: ids.fortnightly } });
+    assert.equal(task.nextDiscussionDate?.toISOString().slice(0, 10), inTwoWeeks);
+    assert.ok(!(await agendaIds(nextWeek)).includes(ids.fortnightly), "fortnightly skips the next Monday");
+    assert.ok((await agendaIds(inTwoWeeks)).includes(ids.fortnightly));
 
-    res = await api("POST", url, { outcome: "NOT_DISCUSSED" });
-    assert.equal(res.status, 200, JSON.stringify(res.json));
-    task = await prisma.task.findUniqueOrThrow({ where: { id: ids.weekly } });
-    assert.equal(task.lastDiscussedAt, null, "undo restores the previous schedule");
+    const items = await prisma.meetingAgendaItem.count({ where: { taskId: ids.fortnightly } });
+    assert.equal(items, 1, "no duplicate agenda record");
+
+    assert.equal((await api("POST", url, { outcome: "PENDING" })).status, 200);
+    task = await prisma.task.findUniqueOrThrow({ where: { id: ids.fortnightly } });
     assert.equal(task.nextDiscussionDate?.toISOString().slice(0, 10), upcoming);
-
-    const following = await agenda(nextWeek);
-    const item = following.sections.flatMap((s: any) => s.items).find((i: any) => i.taskId === ids.weekly);
-    assert.ok(item, "a task that was not discussed carries over");
-    assert.match(item.reason, /Carried over/);
+    assert.equal(task.lastDiscussedAt, null);
   });
 
-  test("a deferred task appears on its revised date only", async () => {
-    let res = await api("POST", `/api/schedule/tasks/${ids.fortnightly}/defer`, {
-      toDate: inTwoWeeks,
-      reason: "Meeting overloaded",
-      meetingDate: upcoming,
-    });
-    assert.equal(res.status, 200, JSON.stringify(res.json));
-    const task = await prisma.task.findUniqueOrThrow({ where: { id: ids.fortnightly } });
-    assert.equal(task.discussionFrequency, "F", "frequency is preserved");
-    assert.equal(task.scheduleState, "DEFERRED");
-    assert.equal(task.originalDiscussionDate?.toISOString().slice(0, 10), nextWeek);
-    assert.ok(!agendaTaskIds(await agenda(nextWeek)).includes(ids.fortnightly));
-    assert.ok(agendaTaskIds(await agenda(inTwoWeeks)).includes(ids.fortnightly));
-
-    const meetingItem = (await agenda(upcoming)).sections
-      .flatMap((s: any) => s.items)
-      .find((i: any) => i.taskId === ids.fortnightly);
-    assert.equal(meetingItem.outcome, "DEFERRED");
-    assert.equal(meetingItem.deferredTo, inTwoWeeks);
-
-    res = await api("POST", `/api/schedule/tasks/${ids.fortnightly}/defer`, {
-      toDate: addDays(inTwoWeeks, 1),
-      reason: "Not a Monday",
-    });
-    assert.equal(res.status, 400);
-  });
-
-  // On the few days when next month's first Monday is also the upcoming
-  // Monday, the monthly task is already due and cannot be brought forward.
-  test("an urgent monthly task is brought forward without changing its frequency", {
-    skip: monthlySlot(today, 1) === upcoming,
-  }, async () => {
-    const res = await api("POST", `/api/schedule/tasks/${ids.monthly}/bring-forward`, {
-      toDate: upcoming,
-      reason: "Signal failure reported in Monday PDF",
-    });
+  test("reschedule brings a monthly task forward without changing its cycle", async () => {
+    const res = await api("POST", `/api/schedule/tasks/${ids.monthly}/reschedule`, { toDate: upcoming, reason: "Urgent" });
     assert.equal(res.status, 200, JSON.stringify(res.json));
     const task = await prisma.task.findUniqueOrThrow({ where: { id: ids.monthly } });
-    assert.equal(task.discussionFrequency, "NM");
-    assert.equal(task.scheduleState, "BROUGHT_FORWARD");
-    const view = await agenda(upcoming);
-    const urgent = view.sections.find((s: any) => s.key === "URGENT");
-    assert.ok(urgent.items.some((i: any) => i.taskId === ids.monthly && i.inclusion === "BROUGHT_FORWARD"));
+    assert.equal(task.discussionFrequency, "MONTHLY");
+    assert.ok((await agendaIds(upcoming)).includes(ids.monthly));
+    const bad = await api("POST", `/api/schedule/tasks/${ids.monthly}/reschedule`, { toDate: addDays(upcoming, 1) });
+    assert.equal(bad.status, 400);
   });
 
-  test("a completed task drops off future agendas", async () => {
-    assert.equal((await api("POST", `/api/schedule/tasks/${ids.weekly}/complete`, {})).status, 200);
-    assert.ok(!agendaTaskIds(await agenda(nextWeek)).includes(ids.weekly));
-  });
-
-  test("bulk initialization schedules only unscheduled tasks", async () => {
-    const res = await api("POST", "/api/schedule/initialize", {
-      taskIds: [ids.unscheduled, ids.monthly],
-      discussionFrequency: "F",
-    });
+  test("changing a cycle persists and recalculates; bulk assign works", async () => {
+    let res = await api("PATCH", `/api/schedule/tasks/${ids.weekly}/cycle`, { cycle: "MONTHLY" });
     assert.equal(res.status, 200, JSON.stringify(res.json));
-    assert.equal(res.json.initialized, 1);
-    const legacy = await prisma.task.findUniqueOrThrow({ where: { id: ids.unscheduled } });
-    assert.equal(legacy.discussionFrequency, "F");
-    assert.ok([upcoming, nextWeek].includes(legacy.nextDiscussionDate!.toISOString().slice(0, 10)));
-    const monthly = await prisma.task.findUniqueOrThrow({ where: { id: ids.monthly } });
-    assert.equal(monthly.discussionFrequency, "NM", "already-scheduled tasks are untouched");
-  });
+    const weekly = await prisma.task.findUniqueOrThrow({ where: { id: ids.weekly } });
+    assert.equal(weekly.discussionFrequency, "MONTHLY");
+    assert.equal(weekly.nextDiscussionDate?.toISOString().slice(0, 10), monthlySlot(today, 1));
+    assert.ok(!(await agendaIds(upcoming)).includes(ids.weekly));
 
-  test("changing frequency keeps past meeting history", async () => {
-    const before = await prisma.meetingAgendaItem.findMany({ where: { taskId: ids.fortnightly } });
-    const res = await api("PATCH", `/api/schedule/tasks/${ids.fortnightly}`, {
-      discussionFrequency: "M",
-      recalculate: true,
-    });
+    res = await api("POST", "/api/schedule/cycle", { taskIds: [ids.unassigned, ids.weekly], cycle: "WEEKLY" });
     assert.equal(res.status, 200, JSON.stringify(res.json));
-    const afterItems = await prisma.meetingAgendaItem.findMany({ where: { taskId: ids.fortnightly } });
-    assert.deepEqual(
-      afterItems.map((i) => [i.id, i.outcome]),
-      before.map((i) => [i.id, i.outcome])
-    );
-    const task = await prisma.task.findUniqueOrThrow({ where: { id: ids.fortnightly } });
-    assert.equal(task.discussionFrequency, "M");
-    assert.equal(task.scheduleState, "SCHEDULED");
+    assert.equal(res.json.updated, 2);
+    const register = await api("GET", "/api/meetings/register");
+    assert.equal(register.json.counts.UNASSIGNED, 0);
   });
 
-  test("history records every scheduling change", async () => {
+  test("history records the changes", async () => {
     const res = await api("GET", `/api/schedule/tasks/${ids.fortnightly}/history`);
     assert.equal(res.status, 200);
-    const types = res.json.events.map((e: any) => e.type);
-    for (const type of ["INITIALIZED", "ADDED_TO_AGENDA", "DEFERRED", "FREQUENCY_CHANGED"]) {
-      assert.ok(types.includes(type), `missing ${type} in ${types.join(",")}`);
-    }
-    assert.ok(res.json.meetings.some((m: any) => m.outcome === "DEFERRED"));
+    const types = res.json.events.map((e: { type: string }) => e.type);
+    for (const t of ["INITIALIZED", "DISCUSSED", "DISCUSSION_UNDONE"]) assert.ok(types.includes(t), types.join(","));
   });
 
-  test("the agenda exports to Excel", async () => {
-    await api("POST", `/api/meetings/${upcoming}/status`, { status: "FINALIZED" });
-    const res = await api("GET", `/api/meetings/${upcoming}/export?format=xlsx`);
-    assert.equal(res.status, 200);
-    assert.match(res.headers.get("content-type") ?? "", /spreadsheetml/);
-    assert.equal(res.buffer.subarray(0, 2).toString(), "PK", "xlsx is a zip file");
-    assert.match(res.headers.get("content-disposition") ?? "", new RegExp(`monday_agenda_${upcoming}\\.xlsx`));
+  test("agenda exports as PDF and Excel", async () => {
+    const pdf = await api("GET", `/api/meetings/${upcoming}/export?format=pdf`);
+    assert.equal(pdf.status, 200);
+    assert.ok(isPdf(pdf.buffer));
+    const xlsx = await api("GET", `/api/meetings/${upcoming}/export?format=xlsx`);
+    assert.equal(xlsx.status, 200);
+    assert.equal(xlsx.buffer.subarray(0, 2).toString(), "PK");
   });
 
-  test("closing a meeting marks undiscussed items as not discussed", async () => {
-    const res = await api("POST", `/api/meetings/${upcoming}/status`, { status: "CLOSED" });
-    assert.equal(res.status, 200);
-    const pending = await prisma.meetingAgendaItem.count({
-      where: { meeting: { meetingDate: new Date(`${upcoming}T00:00:00Z`) }, outcome: "PENDING" },
-    });
-    assert.equal(pending, 0);
-  });
-
-  test("meeting endpoints are admin-only", async () => {
-    const res = await api("GET", `/api/meetings/agenda?date=${upcoming}`, undefined, officerToken);
-    assert.equal(res.status, 403);
-  });
-
-  test("dates that are not Mondays are rejected", async () => {
-    const res = await api("GET", `/api/meetings/agenda?date=${addDays(upcoming, 2)}`);
-    assert.equal(res.status, 400);
+  test("admin only, Mondays only", async () => {
+    assert.equal((await api("GET", "/api/meetings/register", undefined, officerToken)).status, 403);
+    assert.equal((await api("GET", `/api/meetings/agenda?date=${addDays(upcoming, 2)}`)).status, 400);
   });
 });

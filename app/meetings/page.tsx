@@ -1,7 +1,7 @@
 import Sidebar from "@/components/dashboard/Sidebar";
 import AuthGuard from "@/components/AuthGuard";
 import TopSearchBar from "@/components/TopSearchBar";
-import MeetingAgenda from "@/components/meetings/MeetingAgenda";
+import MeetingDashboard from "@/components/meetings/MeetingDashboard";
 import "../tasks/tasks.css";
 import "./meetings.css";
 
@@ -16,7 +16,7 @@ export default function MeetingsPage() {
             <TopSearchBar />
           </div>
 
-          <MeetingAgenda />
+          <MeetingDashboard />
         </main>
       </div>
     </AuthGuard>

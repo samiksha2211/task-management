@@ -15,10 +15,8 @@ export type PendingTaskCreate = {
   status: "Pending" | "Completed";
 
   // Monday meeting scheduling (optional: older queued items have none)
-  priority?: string | null;
-  discussionFrequency?: "M" | "F" | "NM" | null;
+  discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
   monthlyMondayOrdinal?: number | null;
-  estimatedDiscussionMinutes?: number | null;
 
   createdAt: string;
   syncState: "pending" | "syncing" | "failed";
@@ -182,10 +180,8 @@ export async function enqueueTaskCreate(
 
     status: input.status,
 
-    priority: input.priority ?? null,
     discussionFrequency: input.discussionFrequency ?? null,
     monthlyMondayOrdinal: input.monthlyMondayOrdinal ?? null,
-    estimatedDiscussionMinutes: input.estimatedDiscussionMinutes ?? null,
 
     createdAt: new Date().toISOString(),
 

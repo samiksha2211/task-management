@@ -2,29 +2,18 @@ import ExcelJS from "exceljs";
 
 export interface AgendaExportRow {
   serial: number;
-  taskId: string;
+  taskId: number;
   title: string;
   coordinator: string;
-  section: string;
+  cycle: string;
   status: string;
-  frequency: string;
-  priority: string;
   lastDiscussed: string | null;
   nextDiscussion: string | null;
-  estimatedMinutes: number;
-  latestReviewNote: string;
-  schedulingReason: string;
+  remarks: string;
+  reason: string;
   outcome: string;
   notes: string;
   meetingDate: string;
-}
-
-export interface AgendaExportMeta {
-  meetingDate: string;
-  status: string;
-  taskCount: number;
-  totalMinutes: number;
-  limitMinutes: number;
 }
 
 interface Column {
@@ -37,20 +26,17 @@ interface Column {
 
 const COLUMNS: Column[] = [
   { header: "S.No", key: "serial", width: 6 },
-  { header: "Task ID", key: "taskId", width: 28 },
-  { header: "Task Name", key: "title", width: 40, wrap: true },
-  { header: "Co-ordinator Officer", key: "coordinator", width: 20 },
-  { header: "Agenda Section", key: "section", width: 24 },
+  { header: "Task ID", key: "taskId", width: 9 },
+  { header: "Task Name", key: "title", width: 42, wrap: true },
+  { header: "Co-ordinator", key: "coordinator", width: 18 },
+  { header: "Discussion Cycle", key: "cycle", width: 14 },
   { header: "Status", key: "status", width: 12 },
-  { header: "Frequency", key: "frequency", width: 14 },
-  { header: "Priority", key: "priority", width: 10 },
   { header: "Last Discussed", key: "lastDiscussed", width: 15, date: true },
-  { header: "Next Discussion Date", key: "nextDiscussion", width: 15, date: true },
-  { header: "Estimated Discussion Duration (min)", key: "estimatedMinutes", width: 14 },
-  { header: "Latest PDF Update", key: "latestReviewNote", width: 40, wrap: true },
-  { header: "Scheduling Reason", key: "schedulingReason", width: 45, wrap: true },
-  { header: "Outcome", key: "outcome", width: 14 },
-  { header: "Discussion Notes / Decisions", key: "notes", width: 45, wrap: true },
+  { header: "Next Discussion", key: "nextDiscussion", width: 15, date: true },
+  { header: "Latest Remarks / Update", key: "remarks", width: 50, wrap: true },
+  { header: "Why on Agenda", key: "reason", width: 32, wrap: true },
+  { header: "Outcome", key: "outcome", width: 16 },
+  { header: "Discussion Notes", key: "notes", width: 40, wrap: true },
   { header: "Meeting Date", key: "meetingDate", width: 15, date: true },
 ];
 
@@ -60,12 +46,15 @@ function excelDate(iso: string | null): Date | null {
   return iso ? new Date(`${iso}T00:00:00Z`) : null;
 }
 
-export async function exportAgendaToXlsx(rows: AgendaExportRow[], meta: AgendaExportMeta): Promise<Buffer> {
+export async function exportAgendaToXlsx(
+  rows: AgendaExportRow[],
+  meta: { meetingDate: string; taskCount: number }
+): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "RailWork";
   workbook.created = new Date();
 
-  const sheet = workbook.addWorksheet("Agenda", {
+  const sheet = workbook.addWorksheet(`Agenda ${meta.meetingDate}`, {
     views: [{ state: "frozen", ySplit: 1 }],
   });
   sheet.columns = COLUMNS.map((c) => ({ header: c.header, key: c.key, width: c.width }));
@@ -76,42 +65,22 @@ export async function exportAgendaToXlsx(rows: AgendaExportRow[], meta: AgendaEx
     sheet.addRow(values);
   }
 
-  const header = sheet.getRow(1);
-  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E3A5F" } };
-  header.alignment = { vertical: "middle", wrapText: true };
-  header.height = 32;
-
   COLUMNS.forEach((c, index) => {
     const column = sheet.getColumn(index + 1);
     if (c.date) column.numFmt = DATE_FORMAT;
     column.alignment = { vertical: "top", wrapText: Boolean(c.wrap) };
   });
+
+  const header = sheet.getRow(1);
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF163D6B" } };
   header.alignment = { vertical: "middle", wrapText: true };
+  header.height = 30;
 
   sheet.autoFilter = {
     from: { row: 1, column: 1 },
     to: { row: Math.max(1, rows.length + 1), column: COLUMNS.length },
   };
-
-  const summary = workbook.addWorksheet("Summary");
-  summary.columns = [
-    { header: "Item", key: "item", width: 32 },
-    { header: "Value", key: "value", width: 20 },
-  ];
-  summary.addRows([
-    { item: "Meeting date", value: excelDate(meta.meetingDate) },
-    { item: "Agenda status", value: meta.status },
-    { item: "Tasks to discuss", value: meta.taskCount },
-    { item: "Estimated discussion time (min)", value: meta.totalMinutes },
-    { item: "Meeting time available (min)", value: meta.limitMinutes },
-    {
-      item: "Over the limit by (min)",
-      value: Math.max(0, meta.totalMinutes - meta.limitMinutes),
-    },
-  ]);
-  summary.getRow(1).font = { bold: true };
-  summary.getCell("B2").numFmt = DATE_FORMAT;
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer as ArrayBuffer);

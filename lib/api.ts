@@ -1,5 +1,6 @@
 export type ApiTask = {
   id: string;
+  taskNumber?: number;
   title: string;
   description: string | null;
   date: string;
@@ -16,7 +17,7 @@ export type ApiTask = {
   priority?: string | null;
 
   // Monday meeting scheduling
-  discussionFrequency?: "M" | "F" | "NM" | null;
+  discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
   monthlyMondayOrdinal?: number | null;
   lastDiscussedAt?: string | null;
   nextDiscussionDate?: string | null;
