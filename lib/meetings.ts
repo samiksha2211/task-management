@@ -167,8 +167,25 @@ async function download(url: string, fallbackName: string): Promise<void> {
   URL.revokeObjectURL(href);
 }
 
-export const downloadRegisterPdf = (cycle: Cycle, status: "all" | "pending" | "overdue" | "completed" = "all") =>
-  download(`/api/meetings/register/pdf?cycle=${cycle}&status=${status}`, `${cycle.toLowerCase()}_task_register.pdf`);
+export type StatusFilter = "all" | "pending" | "overdue" | "completed" | "pending_overdue";
+
+export const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "All Statuses" },
+  { value: "pending", label: "Pending" },
+  { value: "overdue", label: "Overdue" },
+  { value: "completed", label: "Completed" },
+  { value: "pending_overdue", label: "Pending/Overdue" },
+];
+
+export function matchesStatus(status: TaskStatusLabel, filter: StatusFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "pending_overdue") return status !== "Completed";
+  return status.toLowerCase() === filter;
+}
+
+/** Cycle PDF in the Task Report layout. "ALL" = Weekly, Fortnightly and Monthly sections in one PDF. */
+export const downloadRegisterPdf = (cycle: Cycle | "ALL", status: StatusFilter = "all") =>
+  download(`/api/meetings/register/pdf?cycle=${cycle}&status=${status}`, `monday_meeting_${cycle.toLowerCase()}.pdf`);
 
 export const downloadAgenda = (date: string, format: "pdf" | "xlsx") =>
   download(`/api/meetings/${date}/export?format=${format}`, `monday_agenda_${date}.${format}`);

@@ -31,6 +31,8 @@ const today = todayISO(process.env.MEETING_TIME_ZONE || "Asia/Kolkata");
 const upcoming = mondayOnOrAfter(today);
 const nextWeek = addDays(upcoming, 7);
 const inTwoWeeks = addDays(upcoming, 14);
+// In the week before the first Monday of a month, monthly tasks are due at the next meeting.
+const monthlyIsNext = monthlySlot(today, 1) === upcoming;
 
 async function startDatabase(): Promise<string> {
   if (process.env.TEST_DATABASE_URL) {
@@ -168,17 +170,25 @@ describe("discussion cycles", () => {
       assert.equal(res.status, 200);
       assert.equal(res.headers.get("content-type"), "application/pdf");
       assert.ok(isPdf(res.buffer));
-      assert.match(res.headers.get("content-disposition") ?? "", new RegExp(`${cycle.toLowerCase()}_task_register_`));
+      assert.match(res.headers.get("content-disposition") ?? "", new RegExp(`monday_meeting_${cycle.toLowerCase()}_`));
     }
-    const filtered = await api("GET", "/api/meetings/register/pdf?cycle=MONTHLY&status=completed");
-    assert.equal(filtered.status, 200);
-    assert.ok(isPdf(filtered.buffer));
+    for (const status of ["completed", "pending_overdue"]) {
+      const filtered = await api("GET", `/api/meetings/register/pdf?cycle=MONTHLY&status=${status}`);
+      assert.equal(filtered.status, 200);
+      assert.ok(isPdf(filtered.buffer));
+    }
+    const combined = await api("GET", "/api/meetings/register/pdf?cycle=ALL&status=pending_overdue");
+    assert.equal(combined.status, 200);
+    assert.ok(isPdf(combined.buffer));
+    assert.match(combined.headers.get("content-disposition") ?? "", /monday_meeting_all_pending_overdue_/);
     assert.equal((await api("GET", "/api/meetings/register/pdf?cycle=DAILY")).status, 400);
   });
 
-  test("the agenda has only due tasks, each once, and never the monthly one this week", async () => {
+  test("the agenda has only due tasks, each once; monthly only on its Monday", async () => {
     const onAgenda = await agendaIds(upcoming);
-    assert.deepEqual(onAgenda.sort(), [ids.weekly, ids.fortnightly].sort());
+    const expected = [ids.weekly, ids.fortnightly, ...(monthlyIsNext ? [ids.monthly] : [])];
+    assert.deepEqual(onAgenda.sort(), expected.sort());
+    assert.equal(new Set(onAgenda).size, onAgenda.length, "no duplicates");
   });
 
   test("marking discussed moves only that task, persists, and can be undone", async () => {
@@ -199,12 +209,14 @@ describe("discussion cycles", () => {
     assert.equal(task.lastDiscussedAt, null);
   });
 
-  test("reschedule brings a monthly task forward without changing its cycle", async () => {
-    const res = await api("POST", `/api/schedule/tasks/${ids.monthly}/reschedule`, { toDate: upcoming, reason: "Urgent" });
+  test("reschedule moves a monthly task without changing its cycle", async () => {
+    const target = monthlyIsNext ? nextWeek : upcoming;
+    const res = await api("POST", `/api/schedule/tasks/${ids.monthly}/reschedule`, { toDate: target, reason: "Urgent" });
     assert.equal(res.status, 200, JSON.stringify(res.json));
     const task = await prisma.task.findUniqueOrThrow({ where: { id: ids.monthly } });
     assert.equal(task.discussionFrequency, "MONTHLY");
-    assert.ok((await agendaIds(upcoming)).includes(ids.monthly));
+    assert.ok((await agendaIds(target)).includes(ids.monthly));
+    if (monthlyIsNext) assert.ok(!(await agendaIds(upcoming)).includes(ids.monthly), "moved off its old date");
     const bad = await api("POST", `/api/schedule/tasks/${ids.monthly}/reschedule`, { toDate: addDays(upcoming, 1) });
     assert.equal(bad.status, 400);
   });
@@ -215,7 +227,7 @@ describe("discussion cycles", () => {
     const weekly = await prisma.task.findUniqueOrThrow({ where: { id: ids.weekly } });
     assert.equal(weekly.discussionFrequency, "MONTHLY");
     assert.equal(weekly.nextDiscussionDate?.toISOString().slice(0, 10), monthlySlot(today, 1));
-    assert.ok(!(await agendaIds(upcoming)).includes(ids.weekly));
+    assert.equal((await agendaIds(upcoming)).includes(ids.weekly), monthlyIsNext);
 
     res = await api("POST", "/api/schedule/cycle", { taskIds: [ids.unassigned, ids.weekly], cycle: "WEEKLY" });
     assert.equal(res.status, 200, JSON.stringify(res.json));

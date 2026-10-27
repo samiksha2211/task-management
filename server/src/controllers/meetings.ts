@@ -3,7 +3,7 @@ import type { Response } from "express";
 import { z } from "zod";
 import { param, queryString } from "../lib/http";
 import { exportAgendaToCsv, exportAgendaToXlsx, type AgendaExportRow } from "../lib/meetingExport";
-import { registerToPdf, type RegisterRow } from "../lib/registerPdf";
+import { exportToPdf, rowsFromTasks, type ExportTask, type PdfColumnKey, type TaskExportRow } from "../lib/export";
 import { isOverdue } from "../lib/serialize";
 import { broadcast } from "../lib/sse";
 import { validate } from "../lib/validate";
@@ -119,57 +119,86 @@ export async function getRegister(_req: AuthRequest, res: Response): Promise<voi
   });
 }
 
+// Monday meeting PDFs use the Task Report layout, without Action Plan TDC.
+const PDF_EXCLUDE: PdfColumnKey[] = ["actionPlanTdc"];
+
+const pdfInclude = {
+  officer: true,
+  additionalAssignees: { include: { officer: true } },
+  officerUpdates: { include: { officer: true }, orderBy: { createdAt: "asc" as const } },
+} satisfies Prisma.TaskInclude;
+
+type StatusChoice = "all" | "pending" | "overdue" | "completed" | "pending_overdue";
+
+const STATUS_CHOICE_LABEL: Record<StatusChoice, string> = {
+  all: "All statuses",
+  pending: "Pending",
+  overdue: "Overdue",
+  completed: "Completed",
+  pending_overdue: "Pending / Overdue",
+};
+
+function matchesStatus(task: Task, choice: StatusChoice): boolean {
+  const status = statusLabel(task);
+  if (choice === "all") return true;
+  if (choice === "pending_overdue") return status !== "Completed";
+  return status.toLowerCase() === choice;
+}
+
+function generatedAt(): string {
+  return new Date().toLocaleString("en-GB", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" });
+}
+
+/** Rows grouped by cycle (Weekly, Fortnightly, Monthly), numbered from 1 in each group. */
+function groupedRows(tasks: ExportTask[], grouped: boolean): TaskExportRow[] {
+  if (!grouped) return rowsFromTasks(tasks);
+  const rows: TaskExportRow[] = [];
+  for (const cycle of [...CYCLES, null]) {
+    const inCycle = tasks.filter((t) => t.discussionFrequency === cycle);
+    if (inCycle.length === 0) continue;
+    const label = cycle ? `${CYCLE_LABEL[cycle]} tasks` : "No cycle";
+    rows.push(...rowsFromTasks(inCycle).map((r) => ({ ...r, group: `${label} (${inCycle.length})` })));
+  }
+  return rows;
+}
+
+function sendPdf(res: Response, pdf: Buffer, filename: string): void {
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(pdf);
+}
+
 const registerPdfQuery = z.object({
-  cycle: cycleInput,
-  status: z.enum(["all", "pending", "overdue", "completed"]).default("all"),
+  cycle: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY", "ALL"]),
+  status: z.enum(["all", "pending", "overdue", "completed", "pending_overdue"]).default("all"),
 });
 
-/** PDF of every task in one cycle. All statuses unless a status is chosen. */
+/**
+ * PDF of every task in one cycle, or in all three cycles (one section each).
+ * All statuses unless a status is chosen; "pending_overdue" = not completed.
+ */
 export async function downloadRegisterPdf(req: AuthRequest, res: Response): Promise<void> {
   const q = validate(registerPdfQuery, {
     cycle: (queryString(req.query.cycle) ?? "").toUpperCase(),
     status: (queryString(req.query.status) ?? "all").toLowerCase(),
   });
-  const tasks = await prisma.task.findMany({
-    where: { deletedAt: null, discussionFrequency: q.cycle },
-    include: registerInclude,
-    orderBy: { taskNumber: "asc" },
-  });
-  const views = tasks
-    .map(registerView)
-    .filter((t) => q.status === "all" || t.status.toLowerCase() === q.status);
+  const all = q.cycle === "ALL";
+  const tasks = (
+    await prisma.task.findMany({
+      where: { deletedAt: null, discussionFrequency: all ? { not: null } : (q.cycle as Cycle) },
+      include: pdfInclude,
+      orderBy: [{ date: "desc" }, { taskNumber: "desc" }],
+    })
+  ).filter((t) => matchesStatus(t, q.status));
 
-  const rows: RegisterRow[] = views.map((t) => ({
-    taskNumber: t.taskNumber,
-    title: t.title,
-    officer: t.officer,
-    status: t.status,
-    nextDiscussion: t.nextDiscussionDate ? fmt(t.nextDiscussionDate) : "",
-    lastDiscussed: t.lastDiscussedAt ? fmt(t.lastDiscussedAt) : "",
-    remarks: t.remarks,
-  }));
-  const counts = (["Pending", "Overdue", "Completed"] as const)
-    .map((s) => `${s}: ${views.filter((t) => t.status === s).length}`)
-    .join("  ·  ");
-  const label = CYCLE_LABEL[q.cycle];
-  const generated = new Date().toLocaleString("en-GB", {
-    timeZone: "Asia/Kolkata",
-    dateStyle: "medium",
-    timeStyle: "short",
+  const title = all ? "Monday Meeting — All Cycles" : `Monday Meeting — ${CYCLE_LABEL[q.cycle as Cycle]} Tasks`;
+  const pdf = await exportToPdf(groupedRows(tasks, all), {
+    title,
+    subtitle: `Status: ${STATUS_CHOICE_LABEL[q.status]}  •  Generated ${generatedAt()}  •  ${tasks.length} task(s)`,
+    exclude: PDF_EXCLUDE,
   });
-  const pdf = await registerToPdf(rows, {
-    title: `${label} Task Register`,
-    subtitle:
-      `Discussion cycle: ${label}  ·  Status: ${q.status === "all" ? "All statuses" : q.status}  ·  ` +
-      `${views.length} task(s) (${counts})  ·  Generated ${generated}`,
-  });
-  const suffix = q.status === "all" ? "" : `_${q.status}`;
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename="${q.cycle.toLowerCase()}_task_register${suffix}_${today()}.pdf"`
-  );
-  res.send(pdf);
+  const statusPart = q.status === "all" ? "" : `_${q.status}`;
+  sendPdf(res, pdf, `monday_meeting_${q.cycle.toLowerCase()}${statusPart}_${today()}.pdf`);
 }
 
 // ---------------------------------------------------------------------------
@@ -441,21 +470,17 @@ export async function exportAgenda(req: AuthRequest, res: Response): Promise<voi
   const view = await agendaView(meetingDate);
 
   if (format === "pdf") {
-    const pdf = await registerToPdf(
-      view.items.map((t) => ({
-        taskNumber: t.taskNumber,
-        title: `${t.title}${t.cycle ? `  [${CYCLE_LABEL[t.cycle]}]` : ""}`,
-        officer: t.officer,
-        status: t.status,
-        nextDiscussion: t.nextDiscussionDate ? fmt(t.nextDiscussionDate) : "",
-        lastDiscussed: t.lastDiscussedAt ? fmt(t.lastDiscussedAt) : "",
-        remarks: t.remarks,
-      })),
-      { title: `Monday Meeting Agenda — ${fmt(meetingDate)}`, subtitle: `${view.items.length} task(s) due for discussion` }
-    );
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="monday_agenda_${meetingDate}.pdf"`);
-    res.send(pdf);
+    const tasks = await prisma.task.findMany({
+      where: { id: { in: view.items.map((i) => i.id) } },
+      include: pdfInclude,
+      orderBy: [{ date: "desc" }, { taskNumber: "desc" }],
+    });
+    const pdf = await exportToPdf(groupedRows(tasks, true), {
+      title: `Monday Meeting Agenda — ${fmt(meetingDate)}`,
+      subtitle: `Generated ${generatedAt()}  •  ${tasks.length} task(s) due for discussion`,
+      exclude: PDF_EXCLUDE,
+    });
+    sendPdf(res, pdf, `monday_agenda_${meetingDate}.pdf`);
     return;
   }
 

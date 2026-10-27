@@ -5,6 +5,7 @@ import {
   CYCLES,
   CYCLE_HINT,
   CYCLE_LABEL,
+  STATUS_FILTER_OPTIONS,
   addDaysISO,
   downloadAgenda,
   downloadRegisterPdf,
@@ -14,6 +15,7 @@ import {
   getRegister,
   isMondayISO,
   markDiscussed,
+  matchesStatus,
   mondayOnOrAfterISO,
   rescheduleTask,
   setCycle,
@@ -23,11 +25,11 @@ import {
   type Cycle,
   type RegisterResponse,
   type RegisterTask,
+  type StatusFilter,
 } from "@/lib/meetings";
 import { HistoryDialog, RescheduleDialog } from "./MeetingDialogs";
 
 type View = Cycle | "UNASSIGNED" | "AGENDA";
-type StatusFilter = "all" | "pending" | "overdue" | "completed";
 type SortKey = "taskNumber" | "title" | "nextDiscussionDate" | "status";
 
 const STATUS_CLASS: Record<string, string> = { Pending: "is-warn", Overdue: "is-urgent", Completed: "is-ok" };
@@ -132,6 +134,7 @@ export default function MeetingDashboard() {
           <h1 className="page-title">Monday Meeting</h1>
           <p className="mtg-subtitle">Next meeting: {fmtMonday(register.upcomingMonday)}</p>
         </div>
+        <AllCyclesDownload />
       </div>
 
       {error && <div className="mtg-banner is-error">{error}</div>}
@@ -268,7 +271,7 @@ function RegisterView({
     const term = search.trim().toLowerCase();
     const filtered = tasks.filter(
       (t) =>
-        (status === "all" || t.status.toLowerCase() === status) &&
+        matchesStatus(t.status, status) &&
         (!term ||
           t.title.toLowerCase().includes(term) ||
           t.officer.toLowerCase().includes(term) ||
@@ -344,10 +347,11 @@ function RegisterView({
           onChange={(e) => setSearch(e.target.value)}
         />
         <select aria-label="Filter by status" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
-          <option value="all">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="overdue">Overdue</option>
-          <option value="completed">Completed</option>
+          {STATUS_FILTER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </select>
         {isUnassigned && (
           <>
@@ -375,7 +379,7 @@ function RegisterView({
       </div>
       {!isUnassigned && status !== "all" && (
         <p className="mtg-muted" style={{ margin: "-4px 0 10px" }}>
-          The PDF follows this status filter. Choose “All statuses” for the complete register.
+          The PDF follows this status filter. Choose “All Statuses” for the complete register.
         </p>
       )}
 
@@ -619,6 +623,36 @@ function AgendaView({
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** One PDF with Weekly, Fortnightly and Monthly sections; Pending/Overdue by default. */
+function AllCyclesDownload() {
+  const [status, setStatus] = useState<StatusFilter>("pending_overdue");
+  const [downloading, setDownloading] = useState(false);
+  const download = async () => {
+    setDownloading(true);
+    try {
+      await downloadRegisterPdf("ALL", status);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  };
+  return (
+    <div className="mtg-all-download">
+      <select aria-label="Status for the all-cycles PDF" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
+        {STATUS_FILTER_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <button type="button" className="mtg-btn" onClick={download} disabled={downloading}>
+        {downloading ? "Preparing PDF..." : "Download all cycles PDF"}
+      </button>
     </div>
   );
 }

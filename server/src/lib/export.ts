@@ -90,7 +90,8 @@ export interface TaskExportRow {
 
   boAttachment: string;
 
-
+  /** Optional section heading (e.g. discussion cycle) drawn before the row's group. */
+  group?: string;
 
 }
 
@@ -397,12 +398,23 @@ type Fonts = { regular: string; bold: string };
 const tableWidth = (cols: PdfLayoutColumn[]): number =>
   cols.reduce((s, c) => s + c.width, 0);
 
-function buildColumns(): PdfLayoutColumn[] {
-  const base = PDF_LAYOUT.map((c) => Math.round((c.pct / 100) * PAGE_WIDTH));
-  const total = base.reduce((s, w) => s + w, 0);
-  const cols = PDF_LAYOUT.map((c, i): PdfLayoutColumn => ({ ...c, width: base[i] }));
+export type PdfColumnKey = PdfColumn["key"];
+
+// Width freed by hidden columns goes to the text-heavy columns.
+const WIDEN_ON_HIDE: PdfColumnKey[] = ["task", "actionPlan", "drmRemark", "boRemark"];
+
+function buildColumns(exclude: PdfColumnKey[] = []): PdfLayoutColumn[] {
+  const layout = PDF_LAYOUT.filter((c) => !exclude.includes(c.key));
+  const base = layout.map((c) => Math.round((c.pct / 100) * PAGE_WIDTH));
+  const cols = layout.map((c, i): PdfLayoutColumn => ({ ...c, width: base[i] }));
+  const freed = PAGE_WIDTH - base.reduce((s, w) => s + w, 0);
+  if (exclude.length > 0) {
+    const widen = cols.filter((c) => WIDEN_ON_HIDE.includes(c.key));
+    const share = Math.floor(freed / widen.length);
+    widen.forEach((c) => (c.width += share));
+  }
   const task = cols.find((c) => c.key === "task");
-  if (task) task.width += Math.round(PAGE_WIDTH - total);
+  if (task) task.width += Math.round(PAGE_WIDTH - tableWidth(cols));
   return cols;
 }
 
@@ -717,7 +729,7 @@ function drawRowContent(
 
 export async function exportToPdf(
   rows: TaskExportRow[],
-  meta: { title: string; subtitle: string }
+  meta: { title: string; subtitle: string; exclude?: PdfColumnKey[] }
 ): Promise<Buffer> {
   const doc = new PDFDocument({
     size: "A4",
@@ -734,7 +746,7 @@ export async function exportToPdf(
   });
 
   const fonts = registerFonts(doc);
-  const cols = buildColumns();
+  const cols = buildColumns(meta.exclude);
   const tableW = tableWidth(cols);
   const pageWidth = doc.page.width - PDF_MARGIN * 2;
   const x = PDF_MARGIN + (pageWidth - tableW) / 2;
@@ -769,11 +781,17 @@ export async function exportToPdf(
     pageSeparators.length = 0;
   };
 
+  const GROUP_H = 24;
+  let lastGroup: string | undefined;
+  let groupIndex = 0;
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowH = rowHeight(doc, cols, row, fonts);
+    const startsGroup = row.group !== undefined && row.group !== lastGroup;
+    const needed = rowH + (startsGroup ? GROUP_H : 0);
 
-    if (y + rowH > doc.page.height - PDF_MARGIN) {
+    if (y + needed > doc.page.height - PDF_MARGIN) {
       drawFooter();
       flushSeparators();
       doc.addPage();
@@ -783,7 +801,17 @@ export async function exportToPdf(
       pageSeparators.push(y);
     }
 
-    drawRowContent(doc, cols, fonts, x, row, y, rowH, i % 2 === 1);
+    if (startsGroup) {
+      doc.rect(x, y, tableW, GROUP_H).fill("#E8F1FB");
+      doc.font(fonts.bold).fontSize(10).fillColor(TITLE_COLOR)
+        .text(row.group!, x + CELL_PAD_X, y + 7, { width: tableW - CELL_PAD_X * 2, lineGap: 0 });
+      y += GROUP_H;
+      pageSeparators.push(y);
+      lastGroup = row.group;
+      groupIndex = 0;
+    }
+
+    drawRowContent(doc, cols, fonts, x, row, y, rowH, (row.group !== undefined ? groupIndex++ : i) % 2 === 1);
     pageSeparators.push(y + rowH);
     y += rowH;
   }

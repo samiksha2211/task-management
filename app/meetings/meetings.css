@@ -461,3 +461,18 @@ html[data-theme="dark"] .meeting-page .mtg-cycle-card {
     font-size: 28px;
   }
 }
+
+.mtg-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mtg-all-download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
