@@ -1,0 +1,207 @@
+/* DRM / BO attachments */
+
+.att-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.att-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.att-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  min-width: 0;
+}
+
+.att-list.is-compact {
+  gap: 3px;
+}
+
+.att-list.is-compact .att-item {
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  gap: 5px;
+}
+
+.att-icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+  color: #64748b;
+}
+
+.att-list.is-compact .att-icon {
+  font-size: 13px;
+}
+
+.att-pdf { color: #c62828; }
+.att-excel { color: #1e7a3c; }
+.att-word { color: #1d5bbf; }
+.att-ppt { color: #c2410c; }
+.att-image { color: #7c3aed; }
+.att-sheet { color: #0f9d58; }
+
+.att-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  color: #17457b;
+  text-decoration: none;
+}
+
+.att-list.is-compact .att-name {
+  font-size: 13px;
+  max-width: 160px;
+}
+
+a.att-name:hover {
+  text-decoration: underline;
+}
+
+/* The app styles every <button> as a full-width block; these are small. */
+button.att-remove {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button.att-remove:hover {
+  background: #fdecec;
+  color: #c62828;
+}
+
+.att-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.att-add-buttons,
+.att-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+button.att-btn {
+  width: auto;
+  height: auto;
+  min-height: 34px;
+  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #17457b;
+  cursor: pointer;
+}
+
+button.att-btn:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+button.att-btn.is-primary {
+  background: #17457b;
+  border-color: #17457b;
+  color: #ffffff;
+}
+
+button.att-btn.is-primary:hover:not(:disabled) {
+  background: #0d3663;
+}
+
+button.att-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.att-link-row input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.att-link-row input[type="text"] {
+  flex: 0 1 180px;
+}
+
+.att-hint,
+.att-empty {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.att-error {
+  font-size: 13px;
+  color: #c62828;
+}
+
+html[data-theme="dark"] .att-item {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+html[data-theme="dark"] .att-list.is-compact .att-item {
+  background: transparent;
+}
+
+html[data-theme="dark"] .att-name {
+  color: #93c5fd;
+}
+
+html[data-theme="dark"] button.att-btn {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html[data-theme="dark"] button.att-btn.is-primary {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+html[data-theme="dark"] .att-link-row input {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html[data-theme="dark"] .att-hint,
+html[data-theme="dark"] .att-empty {
+  color: #94a3b8;
+}

@@ -1,9 +1,41 @@
 import type {
+  Prisma,
   Task,
+  TaskAttachment,
   User,
   TaskAdditionalAssignee,
   TaskOfficerUpdate,
 } from "@prisma/client";
+
+/** Relations every serialized task needs (shared by the task, dashboard and PDF queries). */
+export const taskInclude = {
+  officer: true,
+  additionalAssignees: { include: { officer: true } },
+  officerUpdates: { include: { officer: true }, orderBy: { createdAt: "desc" as const } },
+  attachments: { orderBy: { createdAt: "asc" as const } },
+} satisfies Prisma.TaskInclude;
+
+export interface SerializedAttachment {
+  id: string;
+  kind: "FILE" | "LINK";
+  url: string;
+  name: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  createdAt: string;
+}
+
+export function serializeAttachment(a: TaskAttachment): SerializedAttachment {
+  return {
+    id: a.id,
+    kind: a.kind,
+    url: a.url,
+    name: a.name,
+    mimeType: a.mimeType,
+    sizeBytes: a.sizeBytes,
+    createdAt: a.createdAt.toISOString(),
+  };
+}
 
 export type TaskStatusLabel =
   | "Pending"
@@ -63,6 +95,9 @@ export interface SerializedTask {
   attachmentName: string | null;
   attachmentType: string | null;
 
+  // DRM attachments (files and Google Sheets links)
+  attachments: SerializedAttachment[];
+
   status: TaskStatusLabel;
 
   priority: string | null;
@@ -110,6 +145,8 @@ export interface SerializedTask {
     attachmentName: string | null;
     attachmentType: string | null;
 
+    attachments: SerializedAttachment[];
+
     createdAt: string;
     updatedAt: string;
 
@@ -136,11 +173,16 @@ type TaskWithAssignees = Task & {
       officer: User;
     }
   )[];
+
+  attachments?: TaskAttachment[];
 };
 
 export function serializeTask(
   task: TaskWithAssignees
 ): SerializedTask {
+  const all = task.attachments ?? [];
+  const drm = all.filter((a) => !a.officerUpdateId);
+  const boOf = (updateId: string) => all.filter((a) => a.officerUpdateId === updateId);
   const status: TaskStatusLabel =
     task.status === "COMPLETED"
       ? "Completed"
@@ -170,9 +212,11 @@ export function serializeTask(
     remarks: task.remarks,
 
     // DRM Attachment
-    attachmentUrl: task.attachmentUrl,
-    attachmentName: task.attachmentName,
-    attachmentType: task.attachmentType,
+    // Legacy single-attachment fields mirror the first DRM attachment.
+    attachmentUrl: drm[0]?.url ?? null,
+    attachmentName: drm[0]?.name ?? null,
+    attachmentType: drm[0]?.mimeType ?? null,
+    attachments: drm.map(serializeAttachment),
 
     status,
 
@@ -228,12 +272,10 @@ export function serializeTask(
         actionPlan: update.actionPlan ?? null,
         remark: update.remark ?? null,
 
-        attachmentUrl:
-          update.attachmentUrl ?? null,
-        attachmentName:
-          update.attachmentName ?? null,
-        attachmentType:
-          update.attachmentType ?? null,
+        attachmentUrl: boOf(update.id)[0]?.url ?? null,
+        attachmentName: boOf(update.id)[0]?.name ?? null,
+        attachmentType: boOf(update.id)[0]?.mimeType ?? null,
+        attachments: boOf(update.id).map(serializeAttachment),
 
         createdAt:
           update.createdAt.toISOString(),

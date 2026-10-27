@@ -13,6 +13,8 @@ import {
 } from "@/lib/offline";
 import DesignationAutocomplete from "@/components/DesignationAutocomplete";
 import MultiDesignationSelect from "@/components/MultiDesignationSelect";
+import { PendingAttachmentsField } from "@/components/attachments/Attachments";
+import { EMPTY_PENDING, hasPending, uploadPending, type PendingAttachments } from "@/lib/attachments";
 import ScheduleFields, {
   EMPTY_SCHEDULE,
   scheduleBody,
@@ -45,7 +47,7 @@ export default function AddTaskPage() {
   const [actionPlanTdc, setActionPlanTdc] = useState("");
   const [remarks, setRemarks] = useState("");
   const [saving, setSaving] = useState(false);
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachments, setAttachments] = useState<PendingAttachments>(EMPTY_PENDING);
   const [schedule, setSchedule] = useState<ScheduleValue>(EMPTY_SCHEDULE);
 
   useEffect(() => {
@@ -115,6 +117,12 @@ export default function AddTaskPage() {
     };
 
     if (isBrowserOffline()) {
+      if (
+        hasPending(attachments) &&
+        !window.confirm("You are offline, so attachments cannot be saved. Save the task without them?")
+      ) {
+        return;
+      }
       setSaving(true);
       try {
         await enqueueTaskCreate(payload);
@@ -129,26 +137,8 @@ export default function AddTaskPage() {
 
     setSaving(true);
     try {
-      
-        let attachmentData: {
-        attachmentUrl: string;
-        attachmentName: string;
-        attachmentType: string;
-        } | null = null;
-
-        if (attachment) {
-        const formData = new FormData();
-        formData.append("file", attachment);
-
-        attachmentData = await apiFetch<{
-        attachmentUrl: string;
-        attachmentName: string;
-        attachmentType: string;
-      }>("/api/tasks/upload", {
-         method: "POST",
-         body: formData,
-      });
-    }
+      // DRM attachments: files are uploaded first, then saved with the task.
+      const attachmentPayload = await uploadPending(attachments);
       const officerData = await apiFetch<{ user: ApiUser }>(
         "/api/users/ensure-by-designation",
         {
@@ -191,9 +181,7 @@ const additionalOfficerIds = additionalOfficerData.map(
           additionalOfficerIds,
           status: payload.status,
           ...scheduleBody(schedule),
-          attachmentUrl: attachmentData?.attachmentUrl ?? null,
-          attachmentName: attachmentData?.attachmentName ?? null,
-          attachmentType: attachmentData?.attachmentType ?? null,
+          attachments: attachmentPayload,
           clientRequestId,
         }),
       });
@@ -364,18 +352,8 @@ const additionalOfficerIds = additionalOfficerData.map(
               </div>
 
               <div className="form-group">
-                <label>Attachment</label>
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.webp,.ppt,.pptx"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] ?? null;
-                    setAttachment(file);
-                  }}
-                />
-                <span className="form-hint">
-                  PDF, image or PowerPoint.
-                </span>
+                <label>DRM Attachments</label>
+                <PendingAttachmentsField value={attachments} onChange={setAttachments} />
               </div>
 
               <div className="form-group">

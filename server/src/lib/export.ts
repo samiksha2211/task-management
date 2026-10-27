@@ -12,6 +12,7 @@ import type {
 
   TaskOfficerUpdate,
 
+  TaskAttachment,
 } from "@prisma/client";
 
 
@@ -41,6 +42,8 @@ export type ExportTask = Task & {
 }
 
 )[];
+
+  attachments?: TaskAttachment[];
 
 };
 
@@ -159,12 +162,9 @@ export function rowsFromTasks(
 
 
 
-    const boAttachments = (t.officerUpdates ?? [])
-
-      .filter((update) => update.attachmentUrl)
-
-      .map((update) => update.attachmentUrl!)
-
+    const boAttachments = (t.attachments ?? [])
+      .filter((a) => a.officerUpdateId)
+      .map((a) => a.url)
       .join("\n");
 
 
@@ -259,9 +259,10 @@ export function rowsFromTasks(
 
 
 
-      drmAttachment:
-
-        t.attachmentUrl ?? "",
+      drmAttachment: (t.attachments ?? [])
+        .filter((a) => !a.officerUpdateId)
+        .map((a) => a.url)
+        .join("\n"),
 
 
 

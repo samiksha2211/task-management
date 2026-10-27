@@ -26,6 +26,7 @@ model User {
   tasks                     Task[]
   additionalTaskAssignments TaskAdditionalAssignee[]
   taskOfficerUpdates        TaskOfficerUpdate[]
+  uploadedAttachments       TaskAttachment[]
   scheduleEvents            TaskScheduleEvent[]
 
   @@index([designation])
@@ -81,6 +82,7 @@ model Task {
   officer             User                     @relation(fields: [officerId], references: [id])
   additionalAssignees TaskAdditionalAssignee[]
   officerUpdates      TaskOfficerUpdate[]
+  attachments         TaskAttachment[]
   agendaItems         MeetingAgendaItem[]
   scheduleEvents      TaskScheduleEvent[]
 
@@ -117,7 +119,7 @@ model MeetingAgendaItem {
   section                AgendaSection
   inclusion              AgendaInclusion
   reason                 String
-  estimatedMinutes       Int                @default(0)
+  estimatedMinutes       Int             @default(0)
   outcome                AgendaOutcome   @default(PENDING)
   discussionNotes        String?
   decisions              String?
@@ -245,11 +247,42 @@ model TaskOfficerUpdate {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  task    Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  officer User @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  task        Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  officer     User             @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  attachments TaskAttachment[]
 
   @@index([taskId])
   @@index([officerId])
+}
+
+// A file or Google Sheets link attached to a task. officerUpdateId = null
+// means a DRM attachment on the task; otherwise it belongs to that BO entry.
+// (The single attachment columns on Task / TaskOfficerUpdate are legacy and
+// were copied into this table.)
+model TaskAttachment {
+  id              String         @id @default(cuid())
+  taskId          String
+  officerUpdateId String?
+  kind            AttachmentKind
+  url             String
+  name            String
+  mimeType        String?
+  sizeBytes       Int?
+  uploadedById    String?
+  createdAt       DateTime       @default(now())
+
+  task          Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  officerUpdate TaskOfficerUpdate? @relation(fields: [officerUpdateId], references: [id], onDelete: Cascade)
+  uploadedBy    User?              @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([officerUpdateId])
+  @@index([url])
+}
+
+enum AttachmentKind {
+  FILE
+  LINK
 }
 
 model Notification {

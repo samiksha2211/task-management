@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, fileUrl, getRole, type ApiTask } from "@/lib/api";
+import { apiFetch, getRole, type ApiAttachment, type ApiTask } from "@/lib/api";
+import {
+  EMPTY_PENDING,
+  addAttachments,
+  hasPending,
+  removeAttachment,
+  uploadPending,
+  type PendingAttachments,
+} from "@/lib/attachments";
+import { AttachmentManager, PendingAttachmentsField } from "@/components/attachments/Attachments";
 import DesignationAutocomplete from "@/components/DesignationAutocomplete";
 import MultiDesignationSelect from "@/components/MultiDesignationSelect";
 import ScheduleFields, {
@@ -22,8 +31,7 @@ export default function TaskEditForm({ id }: { id?: string }) {
   const [taskName, setTaskName] = useState("");
   const [designation, setDesignation] = useState("");
   const [additionalDesignations, setAdditionalDesignations] = useState<string[]>([]);
-  const [currentAttachment, setCurrentAttachment] = useState<{ url: string; name: string } | null>(null);
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [drmAttachments, setDrmAttachments] = useState<ApiAttachment[]>([]);
   const [status, setStatus] = useState("Pending");
   const [dueDays, setDueDays] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -37,15 +45,27 @@ export default function TaskEditForm({ id }: { id?: string }) {
   type BoRemarkItem = {
   id?: string;
   remark: string;
-  // Current BO attachment (already saved) and a newly chosen file
-  attachmentUrl?: string | null;
-  attachmentName?: string | null;
-  newFile?: File | null;
+  // Saved attachments of an existing BO entry
+  attachments: ApiAttachment[];
+  // Files/links chosen for a new BO entry, sent when the task is saved
+  pending: PendingAttachments;
 };
 
  const [boRemarks, setBoRemarks] = useState<BoRemarkItem[]>([
-  { remark: "" },
+  { remark: "", attachments: [], pending: EMPTY_PENDING },
   ]);
+
+  // After an attachment is added or removed, show what the server saved.
+  const applyTask = (t: ApiTask) => {
+    setDrmAttachments(t.attachments ?? []);
+    setBoRemarks((prev) =>
+      prev.map((item) =>
+        item.id
+          ? { ...item, attachments: t.officerUpdates.find((u) => u.id === item.id)?.attachments ?? [] }
+          : item
+      )
+    );
+  };
   useEffect(() => {
     if (!id) return;
     if (getRole() !== "ADMIN") {
@@ -64,11 +84,7 @@ export default function TaskEditForm({ id }: { id?: string }) {
         setAdditionalDesignations(
           (t.additionalAssignees ?? []).map((a) => a.designation)
         );
-        setCurrentAttachment(
-          t.attachmentUrl
-            ? { url: t.attachmentUrl, name: t.attachmentName || "View attachment" }
-            : null
-        );
+        setDrmAttachments(t.attachments ?? []);
         setStatus(t.status === "Overdue" ? "Pending" : t.status);
         setDueDate(t.dueDate.slice(0, 10));
         setDescription(t.description ?? "");
@@ -94,16 +110,16 @@ export default function TaskEditForm({ id }: { id?: string }) {
               );
 
             setBoRemarks(
-              t.officerUpdates?.some((u) => u.remark?.trim() || u.attachmentUrl)
+              t.officerUpdates?.some((u) => u.remark?.trim() || u.attachments?.length)
               ? t.officerUpdates
-              .filter((u) => u.remark?.trim() || u.attachmentUrl)
+              .filter((u) => u.remark?.trim() || u.attachments?.length)
               .map((u) => ({
               id: u.id,
               remark: u.remark ?? "",
-              attachmentUrl: u.attachmentUrl,
-              attachmentName: u.attachmentName,
+              attachments: u.attachments ?? [],
+              pending: EMPTY_PENDING,
               }))
-              : [{ remark: "" }]
+              : [{ remark: "", attachments: [], pending: EMPTY_PENDING }]
               );
       })
       .catch((e) => {
@@ -147,29 +163,16 @@ const updateBoRemark = (
   );
 };
 
-const setBoAttachment = (index: number, file: File | null) => {
+const setBoPending = (index: number, pending: PendingAttachments) => {
   setBoRemarks((prev) =>
-    prev.map((item, i) => (i === index ? { ...item, newFile: file } : item))
+    prev.map((item, i) => (i === index ? { ...item, pending } : item))
   );
-};
-
-const uploadBoAttachment = async (file: File) => {
-  const formData = new FormData();
-  formData.append("file", file);
-  return apiFetch<{
-    attachmentUrl: string;
-    attachmentName: string;
-    attachmentType: string;
-  }>("/api/tasks/officer-update/upload", {
-    method: "POST",
-    body: formData,
-  });
 };
 
 const addBoRemark = () => {
   setBoRemarks((prev) => [
     ...prev,
-    { remark: "" },
+    { remark: "", attachments: [], pending: EMPTY_PENDING },
   ]);
 };
 
@@ -182,7 +185,7 @@ const removeBoRemark = async (index: number) => {
       const updated = prev.filter((_, i) => i !== index);
       return updated.length
         ? updated
-        : [{ remark: "" }];
+        : [{ remark: "", attachments: [], pending: EMPTY_PENDING }];
     });
     return;
   }
@@ -206,7 +209,7 @@ const removeBoRemark = async (index: number) => {
 
       return updated.length
         ? updated
-        : [{ remark: "" }];
+        : [{ remark: "", attachments: [], pending: EMPTY_PENDING }];
     });
   } catch (err) {
     alert(
@@ -257,24 +260,7 @@ const removeBoRemark = async (index: number) => {
     );
     const additionalOfficerIds = additionalOfficerData.map((item) => item.user.id);
 
-    // New attachment only if one was chosen; otherwise the current one is kept
-    let attachmentData: {
-      attachmentUrl: string;
-      attachmentName: string;
-      attachmentType: string;
-    } | null = null;
-    if (attachment) {
-      const formData = new FormData();
-      formData.append("file", attachment);
-      attachmentData = await apiFetch<{
-        attachmentUrl: string;
-        attachmentName: string;
-        attachmentType: string;
-      }>("/api/tasks/upload", {
-        method: "POST",
-        body: formData,
-      });
-    }
+    // DRM attachments are saved as soon as they are added or removed.
 
     // 2. Prepare Action Plan
     const finalActionPlan =
@@ -320,9 +306,6 @@ const removeBoRemark = async (index: number) => {
         officerId: officerData.user.id,
         additionalOfficerIds,
 
-        // Only present when a new file was uploaded
-        ...(attachmentData ?? {}),
-
         status,
         ...scheduleChanges,
       }),
@@ -331,10 +314,7 @@ const removeBoRemark = async (index: number) => {
 for (const item of boRemarks) {
   const remark = item.remark.trim();
 
-  // Upload a newly chosen BO attachment, if any
-  const boFile = item.newFile ? await uploadBoAttachment(item.newFile) : null;
-
-  // Existing BO Remark
+  // Existing BO Remark (its attachments are saved as they are added/removed)
   if (item.id) {
     await apiFetch(
       `/api/tasks/${id}/officer-updates/${item.id}`,
@@ -342,7 +322,6 @@ for (const item of boRemarks) {
         method: "PUT",
         body: JSON.stringify({
           remark: remark || null,
-          ...(boFile ?? {}),
         }),
       }
     );
@@ -350,15 +329,16 @@ for (const item of boRemarks) {
     continue;
   }
 
-  // New BO Remark and/or attachment
-  if (remark || boFile) {
+  // New BO Remark and/or attachments
+  if (remark || hasPending(item.pending)) {
+    const attachments = await uploadPending(item.pending, "/api/tasks/officer-update/upload");
     await apiFetch(
       `/api/tasks/${id}/officer-updates`,
       {
         method: "POST",
         body: JSON.stringify({
           remark: remark || null,
-          ...(boFile ?? {}),
+          attachments,
         }),
       }
     );
@@ -585,26 +565,16 @@ for (const item of boRemarks) {
           />
         </div>
         <div className="form-group">
-          <label>Attachment</label>
-          {currentAttachment && !attachment && (
-            <span className="form-hint">
-              Current:{" "}
-              <a href={fileUrl(currentAttachment.url)} target="_blank" rel="noopener noreferrer">
-                {currentAttachment.name}
-              </a>
-            </span>
+          <label>DRM Attachments</label>
+          {id && (
+            <AttachmentManager
+              attachments={drmAttachments}
+              canEdit
+              onAdd={async (pending) => applyTask(await addAttachments(id, pending))}
+              onRemove={async (a) => applyTask(await removeAttachment(id, a.id))}
+            />
           )}
-          <input
-            type="file"
-            accept=".pdf,.jpg,.jpeg,.png,.webp,.ppt,.pptx"
-            onChange={(e) => {
-              const file = e.target.files?.[0] ?? null;
-              setAttachment(file);
-            }}
-          />
-          <span className="form-hint">
-            PDF, image or PowerPoint.{currentAttachment ? " Choosing a file replaces the current one." : ""}
-          </span>
+          <span className="form-hint">Attachments are saved as soon as you add or remove them.</span>
         </div>
 
         <div className="form-group">
@@ -618,7 +588,7 @@ for (const item of boRemarks) {
         </div>
 
         <div className="form-group">
-  <label>BO's Remarks</label>
+  <label>BO&apos;s Remarks</label>
 
   {boRemarks.map((remark, index) => (
     <div key={index} className="array-field-row">
@@ -630,23 +600,20 @@ for (const item of boRemarks) {
       />
 
       <div className="bo-attachment-field">
-        <label>BO&apos;s Attachment</label>
-        {remark.attachmentUrl && !remark.newFile && (
-          <span className="form-hint">
-            Current:{" "}
-            <a href={fileUrl(remark.attachmentUrl)} target="_blank" rel="noopener noreferrer">
-              {remark.attachmentName || "View attachment"}
-            </a>
-          </span>
+        <label>BO&apos;s Attachments</label>
+        {remark.id && id ? (
+          <AttachmentManager
+            attachments={remark.attachments}
+            canEdit
+            onAdd={async (pending) => applyTask(await addAttachments(id, pending, remark.id))}
+            onRemove={async (a) => applyTask(await removeAttachment(id, a.id))}
+          />
+        ) : (
+          <>
+            <PendingAttachmentsField value={remark.pending} onChange={(p) => setBoPending(index, p)} />
+            <span className="form-hint">Saved with this BO remark when you save the task.</span>
+          </>
         )}
-        <input
-          type="file"
-          accept=".pdf,.jpg,.jpeg,.png,.webp,.ppt,.pptx"
-          onChange={(e) => setBoAttachment(index, e.target.files?.[0] ?? null)}
-        />
-        <span className="form-hint">
-          PDF, image or PowerPoint.{remark.attachmentUrl ? " Choosing a file replaces the current one." : ""}
-        </span>
       </div>
 
       {boRemarks.length > 1 && (
@@ -661,7 +628,7 @@ for (const item of boRemarks) {
   ))}
 
   <button type="button" onClick={addBoRemark}>
-    + Add BO's Remark
+    + Add BO&apos;s Remark
   </button>
 </div>
 

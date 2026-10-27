@@ -8,7 +8,9 @@ import Link from "next/link";
 
 import { FaDownload } from "react-icons/fa";
 
-import { apiFetch, fileUrl, formatDate, getRole, type ApiTask } from "@/lib/api";
+import { apiFetch, formatDate, getRole, type ApiAttachment, type ApiTask } from "@/lib/api";
+import { removeAttachment } from "@/lib/attachments";
+import { AttachmentList } from "@/components/attachments/Attachments";
 
 import { DESIGNATIONS } from "@/lib/designations";
 
@@ -689,63 +691,22 @@ const handleDeleteBoUpdate = async (
 };
 
 
-  const handleRemoveDrmAttachment = async (taskId: string) => {
-    if (!window.confirm("Remove DRM Attachment?")) return;
-
+  // Remove one DRM or BO attachment; the others on the task stay.
+  const handleRemoveAttachment = async (taskId: string, attachment: ApiAttachment) => {
+    if (
+      !window.confirm(
+        `Remove "${attachment.name}"?${attachment.kind === "FILE" ? " The uploaded file will be deleted." : ""}`
+      )
+    ) {
+      return;
+    }
     try {
-      const result = await apiFetch<{ task: ApiTask }>(`/api/tasks/${taskId}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          attachmentUrl: null,
-          attachmentName: null,
-          attachmentType: null,
-        }),
-      });
-
-      if (result.task) {
-        setTasks((prev) =>
-          prev.map((task) => (task.id === taskId ? result.task : task))
-        );
-      }
+      const updated = await removeAttachment(taskId, attachment.id);
+      setTasks((prev) => prev.map((task) => (task.id === taskId ? updated : task)));
     } catch (err) {
-      alert(
-        err instanceof Error ? err.message : "Failed to remove DRM Attachment"
-      );
+      alert(err instanceof Error ? err.message : "Failed to remove attachment");
     }
   };
-
-  const handleRemoveBoAttachment = async (
-    taskId: string,
-    updateId: string
-  ) => {
-    if (!window.confirm("Remove BO Attachment?")) return;
-
-    try {
-      const result = await apiFetch<{ task: ApiTask | null }>(
-        `/api/tasks/${taskId}/officer-updates/${updateId}`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            attachmentUrl: null,
-            attachmentName: null,
-            attachmentType: null,
-          }),
-        }
-      );
-
-      if (result.task) {
-        const updatedTask = result.task;
-        setTasks((prev) =>
-          prev.map((task) => (task.id === taskId ? updatedTask : task))
-        );
-      }
-    } catch (err) {
-      alert(
-        err instanceof Error ? err.message : "Failed to remove BO Attachment"
-      );
-    }
-  };
-
   return (
 
     <div>
@@ -1049,7 +1010,7 @@ const handleDeleteBoUpdate = async (
 
               <th>DRM Remark</th>
 
-              <th>DRM Attachment</th>
+              <th>DRM Attachments</th>
 
               <th>BO Remark</th>
 
@@ -1246,80 +1207,16 @@ const handleDeleteBoUpdate = async (
                 <td>{task.remarks || "-"}</td>
 
                 {/* 11 - DRM Attachment */}
+                <td>
+                  <AttachmentList
+                    attachments={task.attachments ?? []}
+                    compact
+                    emptyText="-"
+                    onRemove={isAdmin ? (a) => handleRemoveAttachment(task.id, a) : undefined}
+                  />
+                </td>
 
-<td>
-
-  {task.attachmentUrl ? (
-
-    <>
-
-      <a
-
-        href={fileUrl(task.attachmentUrl)}
-
-        target="_blank"
-
-        rel="noopener noreferrer"
-
-      >
-
-        View
-
-      </a>
-
-
-
-      {isAdmin && (
-
-        <button
-
-          type="button"
-
-          title="Remove DRM Attachment"
-
-          onClick={() =>
-
-            handleRemoveDrmAttachment(task.id)
-
-          }
-
-          style={{
-
-            marginLeft: "6px",
-
-            padding: 0,
-
-            border: "none",
-
-            background: "transparent",
-
-            cursor: "pointer",
-
-            fontSize: "14px",
-
-            fontWeight: 600,
-
-          }}
-
-        >
-
-          ×
-
-        </button>
-
-      )}
-
-    </>
-
-  ) : (
-
-    "-"
-
-  )}
-
-</td>
-
-                   {/* 12 - BO Remark */}
+                {/* 12 - BO Remark */}
 
 <td>
 
@@ -1329,7 +1226,7 @@ const handleDeleteBoUpdate = async (
 
       update.remark?.trim() ||
 
-      update.attachmentUrl
+      (update.attachments?.length ?? 0) > 0
 
   ) ? (
 
@@ -1343,7 +1240,7 @@ const handleDeleteBoUpdate = async (
 
             update.remark?.trim() ||
 
-            update.attachmentUrl
+            (update.attachments?.length ?? 0) > 0
 
         )
 
@@ -1371,38 +1268,12 @@ const handleDeleteBoUpdate = async (
 
 
 
-            {update.attachmentUrl && (
-              <>
-                {" "}
-                <a
-                  href={fileUrl(update.attachmentUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  View
-                </a>
-
-                {isAdmin && (
-                  <button
-                    type="button"
-                    title="Remove BO Attachment"
-                    onClick={() =>
-                      handleRemoveBoAttachment(task.id, update.id)
-                    }
-                    style={{
-                      marginLeft: "4px",
-                      padding: 0,
-                      border: "none",
-                      background: "transparent",
-                      cursor: "pointer",
-                      fontSize: "14px",
-                      fontWeight: 600,
-                    }}
-                  >
-                    ×
-                  </button>
-                )}
-              </>
+            {(update.attachments?.length ?? 0) > 0 && (
+              <AttachmentList
+                attachments={update.attachments ?? []}
+                compact
+                onRemove={isAdmin ? (a) => handleRemoveAttachment(task.id, a) : undefined}
+              />
             )}
 
             {isAdmin && (

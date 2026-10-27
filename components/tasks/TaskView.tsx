@@ -3,7 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiFetch, fileUrl, formatDate, getRole, type ApiTask } from "@/lib/api";
+import { apiFetch, formatDate, getRole, getStoredUser, type ApiTask } from "@/lib/api";
+import {
+  EMPTY_PENDING,
+  addAttachments,
+  hasPending,
+  removeAttachment,
+  uploadPending,
+  type PendingAttachments,
+} from "@/lib/attachments";
+import {
+  AttachmentList,
+  AttachmentManager,
+  PendingAttachmentsField,
+} from "@/components/attachments/Attachments";
 import { useRealtime } from "@/lib/realtime";
 
 export default function TaskView({ id }: { id?: string }) {
@@ -15,12 +28,13 @@ export default function TaskView({ id }: { id?: string }) {
 
   const [actionPlan, setActionPlan] = useState("");
   const [boRemark, setBoRemark] = useState("");
-  const [boAttachment, setBoAttachment] = useState<File | null>(null);
+  const [boAttachments, setBoAttachments] = useState<PendingAttachments>(EMPTY_PENDING);
 
   const [submittingUpdate, setSubmittingUpdate] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
   const isAdmin = getRole() === "ADMIN";
+  const myId = getStoredUser()?.id;
 
   // --------------------------------------------------
   // LOAD TASK
@@ -149,7 +163,7 @@ export default function TaskView({ id }: { id?: string }) {
     if (
       !actionPlan.trim() &&
       !boRemark.trim() &&
-      !boAttachment
+      !hasPending(boAttachments)
     ) {
       setUpdateError(
         "Please enter an Action Plan, BO's Remark, or select an attachment."
@@ -161,30 +175,10 @@ export default function TaskView({ id }: { id?: string }) {
     setUpdateError(null);
 
     try {
-      let attachmentUrl: string | null = null;
-      let attachmentName: string | null = null;
-      let attachmentType: string | null = null;
+      // Upload the chosen files first; links are sent as they are.
+      const attachments = await uploadPending(boAttachments, "/api/tasks/officer-update/upload");
 
-      // Upload BO attachment first
-      if (boAttachment) {
-        const formData = new FormData();
-        formData.append("file", boAttachment);
-
-        const uploaded = await apiFetch<{
-          attachmentUrl: string;
-          attachmentName: string;
-          attachmentType: string;
-        }>("/api/tasks/officer-update/upload", {
-          method: "POST",
-          body: formData,
-        });
-
-        attachmentUrl = uploaded.attachmentUrl;
-        attachmentName = uploaded.attachmentName;
-        attachmentType = uploaded.attachmentType;
-      }
-
-      // Save Action Plan + BO Remark + Attachment
+      // Save Action Plan + BO Remark + Attachments
       const data = await apiFetch<{ task: ApiTask }>(
         `/api/tasks/${task.id}/officer-updates`,
         {
@@ -192,9 +186,7 @@ export default function TaskView({ id }: { id?: string }) {
           body: JSON.stringify({
             actionPlan: actionPlan.trim() || null,
             remark: boRemark.trim() || null,
-            attachmentUrl,
-            attachmentName,
-            attachmentType,
+            attachments,
           }),
         }
       );
@@ -208,7 +200,7 @@ export default function TaskView({ id }: { id?: string }) {
       // Clear form after successful submission
       setActionPlan("");
       setBoRemark("");
-      setBoAttachment(null);
+      setBoAttachments(EMPTY_PENDING);
 
       alert("BO update submitted successfully.");
     } catch (e) {
@@ -322,6 +314,10 @@ export default function TaskView({ id }: { id?: string }) {
       label: "DRM Remark",
       value: task.remarks || "-",
     },
+    {
+      label: "DRM Attachments",
+      value: <AttachmentList attachments={task.attachments ?? []} emptyText="-" />,
+    },
   ];
 
   // --------------------------------------------------
@@ -409,20 +405,19 @@ export default function TaskView({ id }: { id?: string }) {
                   ).toLocaleString("en-GB")}
                 </div>
 
-                {update.attachmentUrl && (
-                  <div>
-                    <strong>Attachment:</strong>{" "}
-
-                    <a
-                      href={fileUrl(update.attachmentUrl)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {update.attachmentName ||
-                        "View Attachment"}
-                    </a>
-                  </div>
-                )}
+                <div>
+                  <strong>Attachments:</strong>
+                  {isAdmin || update.officer.id === myId ? (
+                    <AttachmentManager
+                      attachments={update.attachments ?? []}
+                      canEdit
+                      onAdd={async (pending) => setTask(await addAttachments(task.id, pending, update.id))}
+                      onRemove={async (a) => setTask(await removeAttachment(task.id, a.id))}
+                    />
+                  ) : (
+                    <AttachmentList attachments={update.attachments ?? []} emptyText=" -" />
+                  )}
+                </div>
 
               </div>
             ))}
@@ -470,44 +465,8 @@ export default function TaskView({ id }: { id?: string }) {
           </div>
 
           <div className="bo-response-field">
-            <label htmlFor="boAttachment">
-              Attachment
-            </label>
-
-            <input
-              id="boAttachment"
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.webp,.ppt,.pptx"
-              onChange={(e) => {
-                const file =
-                  e.target.files?.[0] ?? null;
-
-                if (
-                  file &&
-                  file.size > 10 * 1024 * 1024
-                ) {
-                  setUpdateError(
-                    "Attachment must be 10 MB or smaller."
-                  );
-
-                  e.target.value = "";
-                  setBoAttachment(null);
-                  return;
-                }
-
-                setUpdateError(null);
-                setBoAttachment(file);
-              }}
-            />
-
-            {boAttachment && (
-              <p>
-                Selected:{" "}
-                <strong>
-                  {boAttachment.name}
-                </strong>
-              </p>
-            )}
+            <label>Attachments</label>
+            <PendingAttachmentsField value={boAttachments} onChange={setBoAttachments} />
           </div>
 
           {updateError && (

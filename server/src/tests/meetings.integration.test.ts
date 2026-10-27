@@ -1,31 +1,14 @@
 // Integration tests for the cycle registers, PDFs and Monday agenda against a
-// real PostgreSQL database.
-//
-// By default a throwaway PostgreSQL server is started with embedded-postgres
-// and every migration is applied from scratch. Set TEST_DATABASE_URL to use an
-// existing *empty test* database instead. Never runs against DATABASE_URL.
+// real PostgreSQL database (see testServer.ts).
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import fs from "node:fs";
-import type { Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import os from "node:os";
-import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import type { PrismaClient } from "@prisma/client";
 import { addDays, mondayOnOrAfter, todayISO } from "../services/scheduling/dates";
 import { monthlySlot } from "../services/scheduling/rules";
+import { startTestServer, type TestServer } from "./testServer";
 
-const serverRoot = path.resolve(__dirname, "../..");
-let pg: { stop: () => Promise<void> } | null = null;
-let pgDir: string | null = null;
-let server: Server;
-let prisma: PrismaClient;
-let baseUrl = "";
-let adminToken = "";
-let officerToken = "";
-let officerId = "";
+let t: TestServer;
+const api = (method: string, url: string, body?: unknown, token?: string) => t.api(method, url, body, token);
 
 const today = todayISO(process.env.MEETING_TIME_ZONE || "Asia/Kolkata");
 const upcoming = mondayOnOrAfter(today);
@@ -34,49 +17,8 @@ const inTwoWeeks = addDays(upcoming, 14);
 // In the week before the first Monday of a month, monthly tasks are due at the next meeting.
 const monthlyIsNext = monthlySlot(today, 1) === upcoming;
 
-async function startDatabase(): Promise<string> {
-  if (process.env.TEST_DATABASE_URL) {
-    if (process.env.TEST_DATABASE_URL === process.env.DATABASE_URL) {
-      throw new Error("TEST_DATABASE_URL must not be the application database.");
-    }
-    return process.env.TEST_DATABASE_URL;
-  }
-  const { default: EmbeddedPostgres } = await import("embedded-postgres");
-  pgDir = fs.mkdtempSync(path.join(os.tmpdir(), "railwork-pg-"));
-  const port = 55000 + Math.floor(Math.random() * 5000);
-  const instance = new EmbeddedPostgres({
-    databaseDir: pgDir,
-    user: "railwork_test",
-    password: "railwork_test",
-    port,
-    persistent: false,
-    onLog: () => {},
-  });
-  await instance.initialise();
-  await instance.start();
-  await instance.createDatabase("railwork_test");
-  pg = instance;
-  return `postgresql://railwork_test:railwork_test@localhost:${port}/railwork_test`;
-}
-
-async function api(method: string, url: string, body?: unknown, token = adminToken) {
-  const res = await fetch(`${baseUrl}${url}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body !== undefined && { "Content-Type": "application/json" }),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  const buffer = Buffer.from(await res.arrayBuffer());
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let json: any = null;
-  if ((res.headers.get("content-type") ?? "").includes("json")) json = JSON.parse(buffer.toString("utf8"));
-  return { status: res.status, json, headers: res.headers, buffer };
-}
-
 async function createTask(title: string, extra: Record<string, unknown> = {}) {
-  const res = await api("POST", "/api/tasks", { title, date: today, dueDate: addDays(today, 60), officerId, ...extra });
+  const res = await api("POST", "/api/tasks", { title, date: today, dueDate: addDays(today, 60), officerId: t.officerId, ...extra });
   assert.equal(res.status, 201, JSON.stringify(res.json));
   return res.json.task as { id: string; taskNumber: number; nextDiscussionDate: string | null };
 }
@@ -92,46 +34,11 @@ function isPdf(buffer: Buffer): boolean {
 }
 
 before(async () => {
-  const url = await startDatabase();
-  execFileSync(process.execPath, [path.join(serverRoot, "node_modules/prisma/build/index.js"), "migrate", "deploy"], {
-    cwd: serverRoot,
-    env: { ...process.env, DATABASE_URL: url },
-    stdio: "pipe",
-  });
-  process.env.DATABASE_URL = url;
-
-  const express = (await import("express")).default;
-  const { default: router } = await import("../routes");
-  const { errorHandler, notFound } = await import("../middleware/error");
-  const { signToken } = await import("../lib/jwt");
-  prisma = (await import("../prisma")).prisma;
-
-  const app = express();
-  app.use(express.json());
-  app.use("/api", router);
-  app.use(notFound);
-  app.use(errorHandler);
-  server = app.listen(0);
-  await new Promise((resolve) => server.once("listening", resolve));
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-
-  const stamp = Date.now();
-  const admin = await prisma.user.create({
-    data: { name: "Admin", email: `admin-${stamp}@test.local`, password: "x", designation: "DRM", role: "ADMIN" },
-  });
-  const officer = await prisma.user.create({
-    data: { name: "Officer", email: `officer-${stamp}@test.local`, password: "x", designation: "Sr.DEN/CO" },
-  });
-  officerId = officer.id;
-  adminToken = signToken({ userId: admin.id, role: "ADMIN" });
-  officerToken = signToken({ userId: officer.id, role: "OFFICER" });
+  t = await startTestServer();
 });
 
 after(async () => {
-  server?.close();
-  await prisma?.$disconnect();
-  if (pg) await pg.stop();
-  if (pgDir) fs.rmSync(pgDir, { recursive: true, force: true });
+  await t?.close();
 });
 
 describe("discussion cycles", () => {
@@ -195,16 +102,16 @@ describe("discussion cycles", () => {
     const url = `/api/meetings/${upcoming}/items/${ids.fortnightly}/outcome`;
     assert.equal((await api("POST", url, { outcome: "DISCUSSED" })).status, 200);
     assert.equal((await api("POST", url, { outcome: "DISCUSSED" })).status, 200, "repeat is harmless");
-    let task = await prisma.task.findUniqueOrThrow({ where: { id: ids.fortnightly } });
+    let task = await t.prisma.task.findUniqueOrThrow({ where: { id: ids.fortnightly } });
     assert.equal(task.nextDiscussionDate?.toISOString().slice(0, 10), inTwoWeeks);
     assert.ok(!(await agendaIds(nextWeek)).includes(ids.fortnightly), "fortnightly skips the next Monday");
     assert.ok((await agendaIds(inTwoWeeks)).includes(ids.fortnightly));
 
-    const items = await prisma.meetingAgendaItem.count({ where: { taskId: ids.fortnightly } });
+    const items = await t.prisma.meetingAgendaItem.count({ where: { taskId: ids.fortnightly } });
     assert.equal(items, 1, "no duplicate agenda record");
 
     assert.equal((await api("POST", url, { outcome: "PENDING" })).status, 200);
-    task = await prisma.task.findUniqueOrThrow({ where: { id: ids.fortnightly } });
+    task = await t.prisma.task.findUniqueOrThrow({ where: { id: ids.fortnightly } });
     assert.equal(task.nextDiscussionDate?.toISOString().slice(0, 10), upcoming);
     assert.equal(task.lastDiscussedAt, null);
   });
@@ -213,7 +120,7 @@ describe("discussion cycles", () => {
     const target = monthlyIsNext ? nextWeek : upcoming;
     const res = await api("POST", `/api/schedule/tasks/${ids.monthly}/reschedule`, { toDate: target, reason: "Urgent" });
     assert.equal(res.status, 200, JSON.stringify(res.json));
-    const task = await prisma.task.findUniqueOrThrow({ where: { id: ids.monthly } });
+    const task = await t.prisma.task.findUniqueOrThrow({ where: { id: ids.monthly } });
     assert.equal(task.discussionFrequency, "MONTHLY");
     assert.ok((await agendaIds(target)).includes(ids.monthly));
     if (monthlyIsNext) assert.ok(!(await agendaIds(upcoming)).includes(ids.monthly), "moved off its old date");
@@ -224,7 +131,7 @@ describe("discussion cycles", () => {
   test("changing a cycle persists and recalculates; bulk assign works", async () => {
     let res = await api("PATCH", `/api/schedule/tasks/${ids.weekly}/cycle`, { cycle: "MONTHLY" });
     assert.equal(res.status, 200, JSON.stringify(res.json));
-    const weekly = await prisma.task.findUniqueOrThrow({ where: { id: ids.weekly } });
+    const weekly = await t.prisma.task.findUniqueOrThrow({ where: { id: ids.weekly } });
     assert.equal(weekly.discussionFrequency, "MONTHLY");
     assert.equal(weekly.nextDiscussionDate?.toISOString().slice(0, 10), monthlySlot(today, 1));
     assert.equal((await agendaIds(upcoming)).includes(ids.weekly), monthlyIsNext);
@@ -253,7 +160,7 @@ describe("discussion cycles", () => {
   });
 
   test("admin only, Mondays only", async () => {
-    assert.equal((await api("GET", "/api/meetings/register", undefined, officerToken)).status, 403);
+    assert.equal((await api("GET", "/api/meetings/register", undefined, t.officerToken)).status, 403);
     assert.equal((await api("GET", `/api/meetings/agenda?date=${addDays(upcoming, 2)}`)).status, 400);
   });
 });

@@ -126,6 +126,7 @@ const pdfInclude = {
   officer: true,
   additionalAssignees: { include: { officer: true } },
   officerUpdates: { include: { officer: true }, orderBy: { createdAt: "asc" as const } },
+  attachments: { orderBy: { createdAt: "asc" as const } },
 } satisfies Prisma.TaskInclude;
 
 type StatusChoice = "all" | "pending" | "overdue" | "completed" | "pending_overdue";

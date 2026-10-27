@@ -5,7 +5,18 @@ import type { Response } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { param, queryString } from "../lib/http";
-import { serializeTask, todayUTCStart } from "../lib/serialize";
+import { serializeTask, taskInclude, todayUTCStart } from "../lib/serialize";
+import { storeFile, deleteStoredFile, isStoredFileUrl, type StoredFile } from "../lib/storage";
+import {
+  AttachmentError,
+  attachmentInputSchema,
+  canManageBo,
+  canManageDrm,
+  cleanUpFiles,
+  createAttachments,
+  sheetLinkSchema,
+  type AttachmentInput,
+} from "../services/attachments";
 import {
   exportToCsv,
   exportToPdf,
@@ -37,9 +48,13 @@ const taskFields = {
   status: statusInput.default("Pending"),
   priority: z.string().trim().max(30).optional().nullable(),
 
+  // Legacy single attachment (still accepted; stored as an attachment row).
   attachmentUrl: z.string().optional().nullable(),
   attachmentName: z.string().optional().nullable(),
   attachmentType: z.string().optional().nullable(),
+
+  // DRM attachments: uploaded files and Google Sheets links.
+  attachments: z.array(attachmentInputSchema).max(20).optional(),
 
   // Monday meeting scheduling
   discussionFrequency: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY"]).optional().nullable(),
@@ -69,10 +84,36 @@ const officerUpdateSchema = z.object({
   actionPlan: z.string().trim().optional().nullable(),
   remark: z.string().trim().optional().nullable(),
 
+  // Legacy single attachment (still accepted; stored as an attachment row).
   attachmentUrl: z.string().optional().nullable(),
   attachmentName: z.string().optional().nullable(),
   attachmentType: z.string().optional().nullable(),
+
+  // BO attachments: uploaded files and Google Sheets links.
+  attachments: z.array(attachmentInputSchema).max(20).optional(),
 });
+
+/** Attachments sent with a create/update request, including the legacy single field. */
+function attachmentInputs(body: {
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  attachmentType?: string | null;
+  attachments?: AttachmentInput[];
+}): AttachmentInput[] {
+  const inputs = [...(body.attachments ?? [])];
+  if (body.attachmentUrl) {
+    if (!isStoredFileUrl(body.attachmentUrl)) {
+      throw new AttachmentError("Attachment must be uploaded through this application.");
+    }
+    inputs.push({
+      kind: "FILE",
+      url: body.attachmentUrl,
+      name: body.attachmentName || "Attachment",
+      mimeType: body.attachmentType ?? null,
+    });
+  }
+  return inputs;
+}
 const listQuerySchema = z.object({
   status: z.string().optional(),
   officerId: z.string().optional(),
@@ -97,24 +138,7 @@ const exportQuerySchema = z.object({
 
 const activeWhere: Prisma.TaskWhereInput = { deletedAt: null };
 
-const taskInclude = {
-  officer: true,
-
-  additionalAssignees: {
-    include: {
-      officer: true,
-    },
-  },
-
-  officerUpdates: {
-    include: {
-      officer: true,
-    },
-    orderBy: {
-      createdAt: "desc" as const,
-    },
-  },
-} satisfies Prisma.TaskInclude;
+// taskInclude (shared with the dashboard and PDFs) lives in ../lib/serialize.
 
 function statusFilterToWhere(status?: string): Prisma.TaskWhereInput {
   switch (status?.toLowerCase()) {
@@ -315,6 +339,7 @@ export async function createTask(req: AuthRequest, res: Response): Promise<void>
     res.status(400).json({ error: "Officer not found" });
     return;
   }
+  const newAttachments = attachmentInputs(body);
 
   let task;
 
@@ -340,9 +365,6 @@ try {
       status: normalizeStatus(body.status),
       priority: body.priority ?? null,
       
-      attachmentUrl: body.attachmentUrl ?? null,
-      attachmentName: body.attachmentName ?? null,
-      attachmentType: body.attachmentType ?? null,
       clientRequestId: body.clientRequestId ?? null,
     },
     include: taskInclude,
@@ -371,6 +393,15 @@ try {
 
   throw error;
 }
+  if (newAttachments.length) {
+    await createAttachments(prisma, {
+      taskId: task.id,
+      officerUpdateId: null,
+      userId: req.user?.id ?? null,
+      inputs: newAttachments,
+    });
+    task = await prisma.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
+  }
   if (hasScheduleFields(body)) {
     task = await applyScheduleFields(task.id, body, req.user?.id ?? null);
   }
@@ -444,17 +475,8 @@ export async function updateTask(req: AuthRequest, res: Response): Promise<void>
   if (body.actionPlanTdc !== undefined)data.actionPlanTdc = body.actionPlanTdc;
 
   if (body.remarks !== undefined) data.remarks = body.remarks;
-  if (body.attachmentUrl !== undefined) {
-  data.attachmentUrl = body.attachmentUrl || null;
-}
-
-if (body.attachmentName !== undefined) {
-  data.attachmentName = body.attachmentName || null;
-}
-
-if (body.attachmentType !== undefined) {
-  data.attachmentType = body.attachmentType || null;
-}
+  // Attachments are added here and removed through the attachments endpoint.
+  const newAttachments = attachmentInputs(body);
   if (body.date !== undefined) data.date = body.date;
   if (body.dueDate !== undefined) data.dueDate = body.dueDate;
   if (body.status !== undefined) data.status = normalizeStatus(body.status);
@@ -466,6 +488,16 @@ if (body.attachmentType !== undefined) {
     data,
     include: taskInclude,
   });
+
+  if (newAttachments.length) {
+    await createAttachments(prisma, {
+      taskId: task.id,
+      officerUpdateId: null,
+      userId: req.user?.id ?? null,
+      inputs: newAttachments,
+    });
+    task = await prisma.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
+  }
 
   if (hasScheduleFields(body)) {
     task = await applyScheduleFields(task.id, body, req.user?.id ?? null);
@@ -485,12 +517,13 @@ export async function createOfficerUpdate(
 
   const taskId = param(req, "id");
   const body = validate(officerUpdateSchema, req.body);
+  const newAttachments = attachmentInputs(body);
 
   // At least one BO field must contain something
   if (
     !body.actionPlan?.trim() &&
     !body.remark?.trim() &&
-    !body.attachmentUrl
+    newAttachments.length === 0
   ) {
     res.status(400).json({
       error: "Please enter an Action Plan, BO's Remark, or attachment.",
@@ -530,21 +563,19 @@ export async function createOfficerUpdate(
     }
   }
 
-  const update = await prisma.taskOfficerUpdate.create({
-    data: {
-      taskId,
-      officerId: req.user.id,
-
-      actionPlan: body.actionPlan?.trim() || null,
-      remark: body.remark?.trim() || null,
-
-      attachmentUrl: body.attachmentUrl ?? null,
-      attachmentName: body.attachmentName ?? null,
-      attachmentType: body.attachmentType ?? null,
-    },
-    include: {
-      officer: true,
-    },
+  const userId = req.user.id;
+  const update = await prisma.$transaction(async (tx) => {
+    const created = await tx.taskOfficerUpdate.create({
+      data: {
+        taskId,
+        officerId: userId,
+        actionPlan: body.actionPlan?.trim() || null,
+        remark: body.remark?.trim() || null,
+      },
+      include: { officer: true },
+    });
+    await createAttachments(tx, { taskId, officerUpdateId: created.id, userId, inputs: newAttachments });
+    return created;
   });
 
   const updatedTask = await prisma.task.findUnique({
@@ -574,6 +605,7 @@ export async function updateOfficerUpdate(
   const updateId = param(req, "updateId");
 
   const body = validate(officerUpdateSchema, req.body);
+  const newAttachments = attachmentInputs(body);
 
   // Make sure this BO update belongs to this task
   const existingUpdate = await prisma.taskOfficerUpdate.findFirst({
@@ -603,23 +635,20 @@ export async function updateOfficerUpdate(
       ...(body.remark !== undefined && {
         remark: body.remark?.trim() || null,
       }),
-
-      ...(body.attachmentUrl !== undefined && {
-        attachmentUrl: body.attachmentUrl,
-      }),
-
-      ...(body.attachmentName !== undefined && {
-        attachmentName: body.attachmentName,
-      }),
-
-      ...(body.attachmentType !== undefined && {
-        attachmentType: body.attachmentType,
-      }),
     },
     include: {
       officer: true,
     },
   });
+
+  if (newAttachments.length) {
+    await createAttachments(prisma, {
+      taskId,
+      officerUpdateId: updateId,
+      userId: req.user.id,
+      inputs: newAttachments,
+    });
+  }
 
   const updatedTask = await prisma.task.findUnique({
     where: {
@@ -663,11 +692,13 @@ export async function deleteOfficerUpdate(
     return;
   }
 
+  const removedAttachments = await prisma.taskAttachment.findMany({ where: { officerUpdateId: updateId } });
   await prisma.taskOfficerUpdate.delete({
     where: {
       id: updateId,
     },
   });
+  await cleanUpFiles(removedAttachments);
 
   const updatedTask = await prisma.task.findUnique({
     where: {
@@ -760,7 +791,101 @@ export async function hardDelete(req: AuthRequest, res: Response): Promise<void>
     return;
   }
 
+  const removedAttachments = await prisma.taskAttachment.findMany({ where: { taskId: existing.id } });
   await prisma.task.delete({ where: { id: param(req, "id") } });
+  await cleanUpFiles(removedAttachments);
   res.json({ success: true });
   broadcast("task:deleted", { id: param(req, "id") });
+}
+
+// ---------------------------------------------------------------------------
+// Attachments
+
+const addAttachmentsSchema = z.object({
+  officerUpdateId: z.string().min(1).optional().nullable(),
+  links: z.array(sheetLinkSchema).max(20).optional(),
+});
+
+/** Links arrive as a JSON array, or as a JSON string inside a multipart form. */
+function parseLinks(body: Record<string, unknown>): unknown {
+  const raw = body.links;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new AttachmentError("links must be a JSON array");
+    }
+  }
+  return raw;
+}
+
+/**
+ * Add files (multipart field "files") and/or Google Sheets links to a task's
+ * DRM attachments, or to one BO entry when officerUpdateId is given.
+ */
+export async function addAttachments(req: AuthRequest, res: Response): Promise<void> {
+  const taskId = param(req, "id");
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  const body = validate(addAttachmentsSchema, {
+    officerUpdateId: (req.body?.officerUpdateId as string | undefined) || null,
+    links: parseLinks(req.body ?? {}),
+  });
+  const links = body.links ?? [];
+  if (files.length === 0 && links.length === 0) {
+    throw new AttachmentError("Choose at least one file or paste a Google Sheets link.");
+  }
+
+  const task = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null } });
+  if (!task) throw new AttachmentError("Task not found", 404);
+
+  if (body.officerUpdateId) {
+    const update = await prisma.taskOfficerUpdate.findFirst({ where: { id: body.officerUpdateId, taskId } });
+    if (!update) throw new AttachmentError("BO entry not found", 404);
+    if (!canManageBo(req.user!, update)) {
+      throw new AttachmentError("You can only add attachments to your own BO entry.", 403);
+    }
+  } else if (!canManageDrm(req.user!)) {
+    throw new AttachmentError("Only the DRM office can add DRM attachments.", 403);
+  }
+
+  const stored: StoredFile[] = [];
+  try {
+    for (const file of files) stored.push(await storeFile(file));
+    const result = await createAttachments(prisma, {
+      taskId,
+      officerUpdateId: body.officerUpdateId ?? null,
+      userId: req.user!.id,
+      files: stored,
+      links,
+    });
+    const updated = await prisma.task.findUniqueOrThrow({ where: { id: taskId }, include: taskInclude });
+    res.status(201).json({ task: serializeTask(updated), ...result });
+    broadcast("task:updated", { id: taskId });
+  } catch (error) {
+    // Do not leave uploaded files behind if saving the records failed.
+    await Promise.all(stored.map((f) => deleteStoredFile(f.url)));
+    throw error;
+  }
+}
+
+/** Remove one attachment; its stored file is deleted if nothing else uses it. */
+export async function removeAttachment(req: AuthRequest, res: Response): Promise<void> {
+  const taskId = param(req, "id");
+  const attachment = await prisma.taskAttachment.findFirst({
+    where: { id: param(req, "attachmentId"), taskId },
+    include: { officerUpdate: true },
+  });
+  if (!attachment) throw new AttachmentError("Attachment not found", 404);
+
+  const allowed = attachment.officerUpdate
+    ? canManageBo(req.user!, attachment.officerUpdate)
+    : canManageDrm(req.user!);
+  if (!allowed) throw new AttachmentError("You cannot remove this attachment.", 403);
+
+  await prisma.taskAttachment.delete({ where: { id: attachment.id } });
+  await cleanUpFiles([attachment]);
+
+  const updated = await prisma.task.findUniqueOrThrow({ where: { id: taskId }, include: taskInclude });
+  res.json({ task: serializeTask(updated) });
+  broadcast("task:updated", { id: taskId });
 }

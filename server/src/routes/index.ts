@@ -6,95 +6,27 @@ import * as meetings from "../controllers/meetings";
 import * as tasks from "../controllers/tasks";
 import * as users from "../controllers/users";
 import { requireAdmin, requireAuth } from "../middleware/auth";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
-import { put } from "@vercel/blob";
+import { storeFile, upload } from "../lib/storage";
 import { runTaskReminders } from "../jobs/taskReminder";
 
 const router = Router();
-const uploadDir = path.join(process.cwd(), "uploads");
 
-// PDF, images and PowerPoint. Some browsers send PowerPoint files as
-// application/octet-stream, so the file extension is checked too.
-const ALLOWED_UPLOADS: Record<string, string> = {
-  ".pdf": "application/pdf",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".ppt": "application/vnd.ms-powerpoint",
-  ".pptx":
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-};
-
-function uploadContentType(file: Express.Multer.File): string | null {
-  const ext = path.extname(file.originalname).toLowerCase();
-  const expected = ALLOWED_UPLOADS[ext];
-  if (!expected) return null;
-  const allowedMimes = Object.values(ALLOWED_UPLOADS);
-  if (allowedMimes.includes(file.mimetype)) return file.mimetype;
-  if (file.mimetype === "application/octet-stream" || file.mimetype === "") {
-    return expected;
-  }
-  return null;
-}
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024,
-  },
-  fileFilter: (_req, file, cb) => {
-    if (uploadContentType(file)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only PDF, image and PowerPoint files are allowed."));
-    }
-  },
-});
-
-async function handleUpload(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
+/** Upload one file and return its stored location (used by older forms). */
+async function handleUpload(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!req.file) {
     res.status(400).json({ error: "No file uploaded" });
     return;
   }
-
-  const contentType = uploadContentType(req.file) ?? req.file.mimetype;
-  const safeName = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const filename = `${Date.now()}-${safeName}`;
-  let attachmentUrl: string;
-
   try {
-    // On Vercel the filesystem is ephemeral, so store in Vercel Blob
-    // (token auth, or OIDC via BLOB_STORE_ID on newer Blob stores).
-    // Without Blob credentials (local dev), keep writing to ./uploads.
-    if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
-      const blob = await put(`uploads/${filename}`, req.file.buffer, {
-        access: "public",
-        addRandomSuffix: true,
-        contentType,
-      });
-      attachmentUrl = blob.url;
-    } else {
-      fs.mkdirSync(uploadDir, { recursive: true });
-      fs.writeFileSync(path.join(uploadDir, filename), req.file.buffer);
-      attachmentUrl = `/uploads/${filename}`;
-    }
+    const stored = await storeFile(req.file);
+    res.json({
+      attachmentUrl: stored.url,
+      attachmentName: stored.name,
+      attachmentType: stored.mimeType,
+    });
   } catch (error) {
     next(error);
-    return;
   }
-
-  res.json({
-    attachmentUrl,
-    attachmentName: req.file.originalname,
-    attachmentType: contentType,
-  });
 }
 
 // Called daily by Vercel Cron (see vercel.json). Vercel sends
@@ -169,6 +101,9 @@ router.delete(
   requireAdmin,
   tasks.deleteOfficerUpdate
 );
+// DRM (task) and BO (officer update) attachments: several files or links each.
+router.post("/tasks/:id/attachments", requireAuth, upload.array("files", 10), tasks.addAttachments);
+router.delete("/tasks/:id/attachments/:attachmentId", requireAuth, tasks.removeAttachment);
 router.get("/tasks/:id", requireAuth, tasks.getTask);
 router.put("/tasks/:id", requireAuth, requireAdmin, tasks.updateTask);
 router.patch("/tasks/:id/status", requireAuth, tasks.updateTaskStatus);

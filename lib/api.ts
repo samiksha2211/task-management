@@ -1,3 +1,14 @@
+/** A DRM or BO attachment: an uploaded file or a Google Sheets link. */
+export type ApiAttachment = {
+  id: string;
+  kind: "FILE" | "LINK";
+  url: string;
+  name: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  createdAt: string;
+};
+
 export type ApiTask = {
   id: string;
   taskNumber?: number;
@@ -12,7 +23,8 @@ export type ApiTask = {
   attachmentUrl: string | null;
   attachmentName: string | null;
   attachmentType: string | null;
-  
+  attachments?: ApiAttachment[];
+
   status: "Pending" | "Completed" | "Overdue";
   priority?: string | null;
 
@@ -51,6 +63,7 @@ officerUpdates: {
   attachmentUrl: string | null;
   attachmentName: string | null;
   attachmentType: string | null;
+  attachments?: ApiAttachment[];
 
   createdAt: string;
   updatedAt: string;
