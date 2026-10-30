@@ -6,6 +6,7 @@ export interface AgendaExportRow {
   title: string;
   coordinator: string;
   cycle: string;
+  allocatedMonday: string;
   status: string;
   lastDiscussed: string | null;
   nextDiscussion: string | null;
@@ -29,10 +30,11 @@ const COLUMNS: Column[] = [
   { header: "Task ID", key: "taskId", width: 9 },
   { header: "Task Name", key: "title", width: 42, wrap: true },
   { header: "Co-ordinator", key: "coordinator", width: 18 },
-  { header: "Discussion Cycle", key: "cycle", width: 14 },
+  { header: "Review Frequency", key: "cycle", width: 11 },
+  { header: "Allocated Monday", key: "allocatedMonday", width: 26 },
   { header: "Status", key: "status", width: 12 },
   { header: "Last Discussed", key: "lastDiscussed", width: 15, date: true },
-  { header: "Next Discussion", key: "nextDiscussion", width: 15, date: true },
+  { header: "Scheduled Discussion", key: "nextDiscussion", width: 15, date: true },
   { header: "Latest Remarks / Update", key: "remarks", width: 50, wrap: true },
   { header: "Why on Agenda", key: "reason", width: 32, wrap: true },
   { header: "Outcome", key: "outcome", width: 16 },

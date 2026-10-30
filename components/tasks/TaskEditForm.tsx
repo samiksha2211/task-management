@@ -92,6 +92,7 @@ export default function TaskEditForm({ id }: { id?: string }) {
         const loadedSchedule: ScheduleValue = {
           cycle: t.discussionFrequency ?? "",
           monthlyMondayOrdinal: t.monthlyMondayOrdinal ?? 1,
+          fortnightAnchor: t.fortnightAnchor ?? "",
         };
         setSchedule(loadedSchedule);
         setInitialSchedule(loadedSchedule);
@@ -275,7 +276,8 @@ const removeBoRemark = async (index: number) => {
     const prevSchedule = scheduleBody(initialSchedule);
     const scheduleChanges =
       nextSchedule.discussionFrequency !== prevSchedule.discussionFrequency ||
-      nextSchedule.monthlyMondayOrdinal !== prevSchedule.monthlyMondayOrdinal
+      nextSchedule.monthlyMondayOrdinal !== prevSchedule.monthlyMondayOrdinal ||
+      nextSchedule.fortnightAnchor !== prevSchedule.fortnightAnchor
         ? nextSchedule
         : {};
 

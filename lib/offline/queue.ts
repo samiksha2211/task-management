@@ -17,6 +17,7 @@ export type PendingTaskCreate = {
   // Monday meeting scheduling (optional: older queued items have none)
   discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
   monthlyMondayOrdinal?: number | null;
+  fortnightAnchor?: string | null;
 
   createdAt: string;
   syncState: "pending" | "syncing" | "failed";
@@ -182,6 +183,7 @@ export async function enqueueTaskCreate(
 
     discussionFrequency: input.discussionFrequency ?? null,
     monthlyMondayOrdinal: input.monthlyMondayOrdinal ?? null,
+    fortnightAnchor: input.fortnightAnchor ?? null,
 
     createdAt: new Date().toISOString(),
 

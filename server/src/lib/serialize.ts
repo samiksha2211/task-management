@@ -6,6 +6,8 @@ import type {
   TaskAdditionalAssignee,
   TaskOfficerUpdate,
 } from "@prisma/client";
+import { allocatedMonday, nextDueDate, REVIEW_CODE } from "../services/scheduling/rules";
+import { today, toSchedulable } from "../services/scheduling/repository";
 
 /** Relations every serialized task needs (shared by the task, dashboard and PDF queries). */
 export const taskInclude = {
@@ -105,6 +107,11 @@ export interface SerializedTask {
   // Monday meeting scheduling
   discussionFrequency: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
   monthlyMondayOrdinal: number | null;
+  fortnightAnchor: string | null;
+  /** W / FT / M, or null without a review frequency. */
+  reviewCode: "W" | "FT" | "M" | null;
+  /** e.g. "Every Monday", "3rd Monday", "2nd Monday · alternate weeks". */
+  allocatedMonday: string | null;
   lastDiscussedAt: string | null;
   nextDiscussionDate: string | null;
   scheduleState: string;
@@ -227,9 +234,11 @@ export function serializeTask(
     lastDiscussedAt: task.lastDiscussedAt
       ? task.lastDiscussedAt.toISOString().slice(0, 10)
       : null,
-    nextDiscussionDate: task.nextDiscussionDate
-      ? task.nextDiscussionDate.toISOString().slice(0, 10)
-      : null,
+    fortnightAnchor: task.fortnightAnchor ? task.fortnightAnchor.toISOString().slice(0, 10) : null,
+    reviewCode: task.discussionFrequency ? REVIEW_CODE[task.discussionFrequency] : null,
+    allocatedMonday: task.discussionFrequency ? allocatedMonday(toSchedulable(task), today()) : null,
+    // Next Monday the task is due, from the same calendar as the meeting agenda.
+    nextDiscussionDate: nextDueDate(toSchedulable(task), today()),
     scheduleState: task.scheduleState,
     scheduleReason: task.scheduleReason,
     estimatedDiscussionMinutes: task.estimatedDiscussionMinutes,

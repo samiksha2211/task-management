@@ -24,6 +24,7 @@ export function toSchedulable(task: Task): SchedulableTask {
     deleted: task.deletedAt !== null,
     frequency: task.discussionFrequency,
     monthlyMondayOrdinal: task.monthlyMondayOrdinal,
+    fortnightAnchor: toISODateOrNull(task.fortnightAnchor),
     lastDiscussedAt: toISODateOrNull(task.lastDiscussedAt),
     nextDiscussionDate: toISODateOrNull(task.nextDiscussionDate),
     originalDiscussionDate: toISODateOrNull(task.originalDiscussionDate),
@@ -42,6 +43,7 @@ export function patchToData(patch: SchedulePatch): Prisma.TaskUncheckedUpdateInp
   if (patch.lastDiscussedAt !== undefined) data.lastDiscussedAt = fromISODateOrNull(patch.lastDiscussedAt);
   if (patch.discussionFrequency !== undefined) data.discussionFrequency = patch.discussionFrequency;
   if (patch.monthlyMondayOrdinal !== undefined) data.monthlyMondayOrdinal = patch.monthlyMondayOrdinal;
+  if (patch.fortnightAnchor !== undefined) data.fortnightAnchor = fromISODateOrNull(patch.fortnightAnchor);
   return data;
 }
 
@@ -117,7 +119,9 @@ export async function computeAgenda(
           deletedAt: null,
           status: { not: "COMPLETED" },
           scheduleState: { not: "CANCELLED" },
-          nextDiscussionDate: { lte: fromISODate(meetingDate) },
+          // Any task with a review frequency, or rescheduled to this Monday;
+          // the calendar rule in buildAgenda decides which are due.
+          OR: [{ discussionFrequency: { not: null } }, { nextDiscussionDate: fromISODate(meetingDate) }],
         },
         ...(storedIds.length ? [{ id: { in: storedIds } }] : []),
       ],

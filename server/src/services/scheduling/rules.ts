@@ -1,28 +1,31 @@
-// Monday meeting scheduling rules.
+// Monday meeting scheduling: a fixed review calendar.
 //
-// Pure functions over plain data; the controllers load tasks, call these and
-// save the result, so all scheduling logic lives (and is tested) here.
+// Pure functions over plain data. The website, the agenda, and every PDF use
+// these same functions, so they always agree.
 //
-// Cycles:
-//   WEEKLY      -> every Monday.
-//   FORTNIGHTLY -> 14 days after the last actual discussion.
-//   MONTHLY     -> the designated Monday (first by default) of the next month.
+// Review frequencies (shown as W / FT / M):
+//   W  (WEEKLY)      every Monday.
+//   FT (FORTNIGHTLY) every other Monday, counted from the task's start Monday
+//                    (fortnightAnchor). The cycle runs straight across months.
+//   M  (MONTHLY)     the allocated Monday of every month (1st-5th). In a month
+//                    with no 5th Monday, a 5th-Monday task is on the last one.
 //
-// Agenda for a Monday (see buildAgenda):
-//   1. Completed, deleted or cancelled tasks are left out.
-//   2. A task is included when its next discussion date is on or before that
-//      Monday (a missed date carries over). Rescheduled tasks are included on
-//      their new date only.
-//   3. The cycle alone never puts a task on an agenda.
-//   4. Each task appears at most once per meeting.
+// A task is on a Monday's agenda when that Monday is one of its review dates.
+// Nothing carries over and nothing has to be allocated by hand. One date can
+// be moved with Reschedule: the task is then on the new Monday instead of the
+// original one, and its regular calendar is unchanged.
+//
+// Each task appears at most once per Monday (and the database allows one
+// agenda row per task per meeting). Tasks that are completed, deleted, or have
+// no review frequency are never on an agenda.
 
 import { CYCLE_LABEL, type Cycle } from "./config";
 import {
   addDays,
+  diffDays,
+  fromISODate,
   isMonday,
-  mondayAfter,
   mondayOnOrAfter,
-  nextMonthOf,
   nthMondayOfMonth,
   type ISODate,
 } from "./dates";
@@ -38,15 +41,26 @@ export type AgendaSectionValue =
 export type AgendaInclusionValue = "DUE" | "BROUGHT_FORWARD" | "MANUAL";
 export type AgendaOutcomeValue = "PENDING" | "DISCUSSED" | "NOT_DISCUSSED" | "DEFERRED";
 
+export const REVIEW_CODE: Record<Cycle, "W" | "FT" | "M"> = {
+  WEEKLY: "W",
+  FORTNIGHTLY: "FT",
+  MONTHLY: "M",
+};
+
 export interface SchedulableTask {
   id: string;
   title: string;
   status: "PENDING" | "COMPLETED" | "OVERDUE";
   deleted: boolean;
   frequency: Cycle | null;
+  /** MONTHLY: allocated Monday of the month, 1-5 (null = 1st). */
   monthlyMondayOrdinal: number | null;
+  /** FORTNIGHTLY: a Monday the alternate-week cycle runs from. */
+  fortnightAnchor: ISODate | null;
   lastDiscussedAt: ISODate | null;
+  /** With a reschedule: the Monday the task was moved to. */
   nextDiscussionDate: ISODate | null;
+  /** With a reschedule: the regular Monday it was moved from. */
   originalDiscussionDate: ISODate | null;
   scheduleState: ScheduleStateValue;
   scheduleReason: string | null;
@@ -60,6 +74,7 @@ export interface SchedulePatch {
   lastDiscussedAt?: ISODate | null;
   discussionFrequency?: Cycle | null;
   monthlyMondayOrdinal?: number | null;
+  fortnightAnchor?: ISODate | null;
 }
 
 export class SchedulingError extends Error {
@@ -82,151 +97,201 @@ export function fmt(date: ISODate): string {
   return `${+d} ${month} ${y}`;
 }
 
-// ---------------------------------------------------------------------------
-// Cycle rules
+const ORDINAL = ["1st", "2nd", "3rd", "4th", "5th"];
 
-/** The designated Monday of the month after `fromDate` for a MONTHLY task. */
-export function monthlySlot(fromDate: ISODate, ordinal: number | null | undefined): ISODate {
-  const { year, month } = nextMonthOf(fromDate);
-  return nthMondayOfMonth(year, month, ordinal ?? 1);
+export function ordinalLabel(n: number): string {
+  return `${ORDINAL[Math.min(Math.max(n, 1), 5) - 1]} Monday`;
 }
 
-/** Next discussion date after a task was actually discussed on `discussedOn`. */
-export function nextDateAfterDiscussion(cycle: Cycle, discussedOn: ISODate, monthlyOrdinal?: number | null): ISODate {
-  switch (cycle) {
+/** Which Monday of its month a date is (1 = first). */
+export function mondayPosition(date: ISODate): number {
+  return Math.ceil(fromISODate(date).getUTCDate() / 7);
+}
+
+function clampOrdinal(n: number | null | undefined): number {
+  if (n === -1) return 5; // legacy "last Monday"
+  return Math.min(Math.max(Math.trunc(n ?? 1), 1), 5);
+}
+
+// ---------------------------------------------------------------------------
+// The calendar
+
+/** The regular review rule, ignoring any reschedule. */
+export function occursOn(task: Pick<SchedulableTask, "frequency" | "monthlyMondayOrdinal" | "fortnightAnchor">, date: ISODate): boolean {
+  if (!task.frequency || !isMonday(date)) return false;
+  switch (task.frequency) {
     case "WEEKLY":
-      return mondayAfter(discussedOn);
-    case "FORTNIGHTLY":
-      return mondayOnOrAfter(addDays(discussedOn, 14));
-    case "MONTHLY":
-      return monthlySlot(discussedOn, monthlyOrdinal);
+      return true;
+    case "FORTNIGHTLY": {
+      if (!task.fortnightAnchor) return false;
+      const days = diffDays(date, mondayOnOrAfter(task.fortnightAnchor));
+      return ((days % 14) + 14) % 14 === 0;
+    }
+    case "MONTHLY": {
+      const d = fromISODate(date);
+      return nthMondayOfMonth(d.getUTCFullYear(), d.getUTCMonth() + 1, clampOrdinal(task.monthlyMondayOrdinal)) === date;
+    }
   }
 }
 
-/**
- * First discussion date when a task gets a cycle (new task, first assignment
- * or a cycle change). Always a Monday, never in the past.
- *   - Discussed before: the cycle is counted from the last discussion; if that
- *     date has already passed, the upcoming Monday.
- *   - Never discussed: WEEKLY and FORTNIGHTLY start on the upcoming Monday
- *     (fortnightly then repeats every 14 days); MONTHLY starts on the
- *     designated Monday of next month.
- */
-export function initialDiscussionDate(input: {
-  cycle: Cycle;
-  today: ISODate;
-  lastDiscussedAt?: ISODate | null;
-  monthlyMondayOrdinal?: number | null;
-}): { date: ISODate; reason: string } {
-  const upcoming = mondayOnOrAfter(input.today);
-  const label = CYCLE_LABEL[input.cycle];
+export function hasReschedule(task: Pick<SchedulableTask, "scheduleState" | "nextDiscussionDate">): boolean {
+  return task.scheduleState !== "SCHEDULED" && task.scheduleState !== "CANCELLED" && !!task.nextDiscussionDate;
+}
 
-  if (input.lastDiscussedAt) {
-    const due = nextDateAfterDiscussion(input.cycle, input.lastDiscussedAt, input.monthlyMondayOrdinal);
-    return due < upcoming
-      ? { date: upcoming, reason: `${label}: due since ${fmt(due)}` }
-      : { date: due, reason: `${label}: counted from last discussion on ${fmt(input.lastDiscussedAt)}` };
+/** Is the task to be discussed at the meeting on this Monday? */
+export function isDueOn(task: SchedulableTask, date: ISODate): boolean {
+  if (isTaskClosed(task) || !isMonday(date)) return false;
+  if (hasReschedule(task)) {
+    if (date === task.nextDiscussionDate) return true;
+    if (date === task.originalDiscussionDate) return false;
   }
-  if (input.cycle === "MONTHLY") {
-    return { date: monthlySlot(input.today, input.monthlyMondayOrdinal), reason: "Monthly: designated Monday of next month" };
+  return occursOn(task, date);
+}
+
+/** First Monday on or after `from` when the task is due (or null). */
+export function nextDueDate(task: SchedulableTask, from: ISODate): ISODate | null {
+  if (isTaskClosed(task)) return null;
+  let date = mondayOnOrAfter(from);
+  for (let i = 0; i < 60; i++, date = addDays(date, 7)) {
+    if (isDueOn(task, date)) return date;
   }
-  return { date: upcoming, reason: `${label}: starts on the upcoming Monday` };
+  return null;
+}
+
+/** First regular review Monday on or after `from`, ignoring reschedules. */
+export function nextRegularDate(task: SchedulableTask, from: ISODate): ISODate | null {
+  let date = mondayOnOrAfter(from);
+  for (let i = 0; i < 60; i++, date = addDays(date, 7)) {
+    if (occursOn(task, date)) return date;
+  }
+  return null;
+}
+
+/**
+ * "Allocated Monday" shown next to each task.
+ *   W  -> "Every Monday"
+ *   FT -> where its next review date falls, e.g. "2nd Monday · alternate weeks"
+ *   M  -> its fixed Monday, e.g. "3rd Monday"
+ */
+export function allocatedMonday(task: SchedulableTask, from: ISODate): string {
+  switch (task.frequency) {
+    case "WEEKLY":
+      return "Every Monday";
+    case "MONTHLY":
+      return ordinalLabel(clampOrdinal(task.monthlyMondayOrdinal));
+    case "FORTNIGHTLY": {
+      const next = nextRegularDate(task, from);
+      return next ? `${ordinalLabel(mondayPosition(next))} · alternate weeks` : "Alternate weeks";
+    }
+    default:
+      return "";
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Schedule changes
+// Changes
+
+export interface CycleOptions {
+  monthlyMondayOrdinal?: number | null;
+  fortnightAnchor?: ISODate | null;
+}
 
 /**
- * Set, change or clear a task's cycle. Only the future schedule changes; past
- * discussions are untouched. A date set by Reschedule is replaced, because
- * the user has chosen a new cycle.
+ * Set, change or clear a task's review frequency. The future calendar follows
+ * the new settings at once; any reschedule is cleared. Past meetings are kept.
  */
 export function planCycleChange(
   task: SchedulableTask,
   cycle: Cycle | null,
-  monthlyMondayOrdinal: number | null,
+  options: CycleOptions,
   today: ISODate
 ): SchedulePatch {
+  const base = {
+    nextDiscussionDate: null,
+    scheduleState: "SCHEDULED" as const,
+    originalDiscussionDate: null,
+  };
   if (!cycle) {
     return {
+      ...base,
       discussionFrequency: null,
       monthlyMondayOrdinal: null,
-      nextDiscussionDate: null,
-      scheduleState: "SCHEDULED",
-      originalDiscussionDate: null,
-      scheduleReason: "No discussion cycle",
+      fortnightAnchor: null,
+      scheduleReason: "No review frequency",
     };
   }
-  const { date, reason } = initialDiscussionDate({
-    cycle,
-    today,
-    lastDiscussedAt: task.lastDiscussedAt,
-    monthlyMondayOrdinal,
-  });
+  if (cycle === "WEEKLY") {
+    return { ...base, discussionFrequency: cycle, monthlyMondayOrdinal: null, fortnightAnchor: null, scheduleReason: "W: every Monday" };
+  }
+  if (cycle === "MONTHLY") {
+    const ordinal = clampOrdinal(options.monthlyMondayOrdinal ?? task.monthlyMondayOrdinal);
+    return {
+      ...base,
+      discussionFrequency: cycle,
+      monthlyMondayOrdinal: ordinal,
+      fortnightAnchor: null,
+      scheduleReason: `M: ${ordinalLabel(ordinal)} of every month`,
+    };
+  }
+  const anchor = options.fortnightAnchor ?? (task.frequency === "FORTNIGHTLY" ? task.fortnightAnchor : null) ?? mondayOnOrAfter(today);
+  if (!isMonday(anchor)) throw new SchedulingError("The fortnightly start date must be a Monday.");
   return {
+    ...base,
     discussionFrequency: cycle,
-    monthlyMondayOrdinal: cycle === "MONTHLY" ? monthlyMondayOrdinal : null,
-    nextDiscussionDate: date,
-    scheduleState: "SCHEDULED",
-    originalDiscussionDate: null,
-    scheduleReason: reason,
-  };
-}
-
-/** Schedule after the task was actually discussed at the meeting on `meetingDate`. */
-export function planDiscussed(task: SchedulableTask, meetingDate: ISODate): SchedulePatch {
-  // A date the user explicitly set for later than this meeting is kept.
-  if (task.scheduleState === "PINNED" && task.nextDiscussionDate && task.nextDiscussionDate > meetingDate) {
-    return {
-      lastDiscussedAt: meetingDate,
-      nextDiscussionDate: task.nextDiscussionDate,
-      scheduleState: "PINNED",
-      originalDiscussionDate: task.originalDiscussionDate,
-      scheduleReason: task.scheduleReason,
-    };
-  }
-  if (!task.frequency) {
-    return {
-      lastDiscussedAt: meetingDate,
-      nextDiscussionDate: null,
-      scheduleState: "SCHEDULED",
-      originalDiscussionDate: null,
-      scheduleReason: "Discussed; no cycle, so not scheduled again",
-    };
-  }
-  return {
-    lastDiscussedAt: meetingDate,
-    nextDiscussionDate: nextDateAfterDiscussion(task.frequency, meetingDate, task.monthlyMondayOrdinal),
-    scheduleState: "SCHEDULED",
-    originalDiscussionDate: null,
-    scheduleReason: `${CYCLE_LABEL[task.frequency]}: discussed on ${fmt(meetingDate)}`,
+    monthlyMondayOrdinal: null,
+    fortnightAnchor: anchor,
+    scheduleReason: `FT: alternate Mondays from ${fmt(anchor)}`,
   };
 }
 
 /**
- * Move a task's next discussion to another Monday (earlier or later). The
- * cycle is not changed; once the task is discussed, the normal cycle resumes.
+ * Move one review date to another Monday (earlier or later). The task is on
+ * `toDate` instead of its regular Monday `fromDate`; its frequency and the
+ * rest of its calendar are unchanged.
  */
 export function planReschedule(
   task: SchedulableTask,
   toDate: ISODate,
   reason: string,
-  today: ISODate
+  today: ISODate,
+  fromDate?: ISODate | null
 ): SchedulePatch {
   if (isTaskClosed(task)) throw new SchedulingError("A completed task cannot be rescheduled.");
   if (!isMonday(toDate)) throw new SchedulingError("Meetings are on Mondays; please pick a Monday.");
-  if (toDate < mondayOnOrAfter(today)) throw new SchedulingError("Please pick today or a later Monday.");
-  if (toDate === task.nextDiscussionDate) {
+  if (toDate < mondayOnOrAfter(today)) throw new SchedulingError("Please pick the coming Monday or a later one.");
+
+  // The regular date being replaced: the one already replaced, or the next one.
+  const original = hasReschedule(task)
+    ? task.originalDiscussionDate
+    : fromDate && occursOn(task, fromDate)
+      ? fromDate
+      : nextRegularDate(task, today);
+
+  if (toDate === original) {
+    return { nextDiscussionDate: null, scheduleState: "SCHEDULED", originalDiscussionDate: null, scheduleReason: "Back on its regular Monday" };
+  }
+  if (isDueOn(task, toDate)) {
     throw new SchedulingError(`This task is already scheduled for ${fmt(toDate)}.`, "UNCHANGED", 409);
   }
-  const earlier = !task.nextDiscussionDate || toDate < task.nextDiscussionDate;
+  const earlier = !original || toDate < original;
   const note = reason.trim();
   return {
     nextDiscussionDate: toDate,
     scheduleState: earlier ? "BROUGHT_FORWARD" : "DEFERRED",
-    // Keep the date the cycle had produced, across repeated reschedules.
-    originalDiscussionDate: task.originalDiscussionDate ?? task.nextDiscussionDate,
-    scheduleReason: `${earlier ? "Brought forward" : "Moved"} to ${fmt(toDate)}${note ? `: ${note}` : ""}`,
+    originalDiscussionDate: original,
+    scheduleReason: `${earlier ? "Brought forward" : "Moved"} to ${fmt(toDate)}${original ? ` (from ${fmt(original)})` : ""}${note ? `: ${note}` : ""}`,
+  };
+}
+
+/** Record a discussion. The calendar does not change; a reschedule to this date is used up. */
+export function planDiscussed(task: SchedulableTask, meetingDate: ISODate): SchedulePatch {
+  const usedUp = hasReschedule(task) && task.nextDiscussionDate === meetingDate;
+  return {
+    lastDiscussedAt: meetingDate,
+    nextDiscussionDate: usedUp ? null : task.nextDiscussionDate,
+    scheduleState: usedUp ? "SCHEDULED" : task.scheduleState,
+    originalDiscussionDate: usedUp ? null : task.originalDiscussionDate,
+    scheduleReason: usedUp ? `Discussed on ${fmt(meetingDate)}` : task.scheduleReason,
   };
 }
 
@@ -257,17 +322,16 @@ export function cycleSection(cycle: Cycle | null): AgendaSectionValue {
 }
 
 function inclusionReason(task: SchedulableTask, meetingDate: ISODate): string {
-  if (task.nextDiscussionDate && task.nextDiscussionDate < meetingDate) {
-    return `Carried over: was due ${fmt(task.nextDiscussionDate)}`;
-  }
-  if (task.scheduleState !== "SCHEDULED" && task.scheduleReason) return task.scheduleReason;
-  return task.frequency ? `${CYCLE_LABEL[task.frequency]} discussion due` : "Scheduled";
+  if (hasReschedule(task) && task.nextDiscussionDate === meetingDate && task.scheduleReason) return task.scheduleReason;
+  if (!task.frequency) return "Scheduled";
+  return `${REVIEW_CODE[task.frequency]}: ${allocatedMonday(task, meetingDate)}`;
 }
 
+const SECTION_ORDER: AgendaSectionValue[] = ["WEEKLY", "FORTNIGHTLY", "MONTHLY", "NEW", "URGENT", "BLOCKED_OVERDUE"];
+
 /**
- * Build the agenda for one Monday from the tasks and whatever is already
- * stored for that meeting. The same inputs always give the same entries, and
- * each task appears at most once.
+ * The agenda for one Monday: every task due that day, once. Outcomes already
+ * recorded for that meeting are kept as history. Same inputs, same result.
  */
 export function buildAgenda(params: {
   meetingDate: ISODate;
@@ -279,27 +343,17 @@ export function buildAgenda(params: {
   const entries = new Map<string, AgendaEntry>();
   const dropped: AgendaResult["dropped"] = [];
 
-  // Recorded outcomes are history and always kept; manual additions stay
-  // unless the task has been closed since.
   for (const item of existingItems) {
     if (entries.has(item.taskId)) continue;
-    const task = byId.get(item.taskId);
-    if (item.outcome !== "PENDING") {
-      entries.set(item.taskId, { ...item, locked: true });
-    } else if (!task || isTaskClosed(task)) {
-      dropped.push({ taskId: item.taskId, reason: "Task is completed or deleted" });
-    } else if (item.inclusion === "MANUAL") {
-      entries.set(item.taskId, { ...item, section: cycleSection(task.frequency), locked: false });
-    }
+    if (item.outcome !== "PENDING") entries.set(item.taskId, { ...item, locked: true });
   }
 
   for (const task of tasks) {
-    if (entries.has(task.id) || isTaskClosed(task)) continue;
-    if (!task.nextDiscussionDate || task.nextDiscussionDate > meetingDate) continue;
+    if (entries.has(task.id) || !isDueOn(task, meetingDate)) continue;
     entries.set(task.id, {
       taskId: task.id,
       section: cycleSection(task.frequency),
-      inclusion: task.scheduleState === "BROUGHT_FORWARD" ? "BROUGHT_FORWARD" : "DUE",
+      inclusion: hasReschedule(task) && task.nextDiscussionDate === meetingDate ? "BROUGHT_FORWARD" : "DUE",
       reason: inclusionReason(task, meetingDate),
       outcome: "PENDING",
       locked: false,
@@ -307,22 +361,18 @@ export function buildAgenda(params: {
   }
 
   for (const item of existingItems) {
-    if (
-      item.outcome === "PENDING" &&
-      item.inclusion !== "MANUAL" &&
-      !entries.has(item.taskId) &&
-      !dropped.some((d) => d.taskId === item.taskId)
-    ) {
-      dropped.push({ taskId: item.taskId, reason: "No longer due at this meeting" });
+    if (item.outcome === "PENDING" && !entries.has(item.taskId) && !dropped.some((d) => d.taskId === item.taskId)) {
+      dropped.push({ taskId: item.taskId, reason: "Not due at this meeting" });
     }
   }
 
-  const order: AgendaSectionValue[] = ["WEEKLY", "FORTNIGHTLY", "MONTHLY", "NEW", "URGENT", "BLOCKED_OVERDUE"];
   const sorted = [...entries.values()].sort(
     (a, b) =>
-      order.indexOf(a.section) - order.indexOf(b.section) ||
+      SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section) ||
       (byId.get(a.taskId)?.title ?? "").localeCompare(byId.get(b.taskId)?.title ?? "") ||
       a.taskId.localeCompare(b.taskId)
   );
   return { entries: sorted, dropped };
 }
+
+export { CYCLE_LABEL };

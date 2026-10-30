@@ -27,6 +27,7 @@ import { validate } from "../lib/validate";
 import type { AuthRequest } from "../middleware/auth";
 import { prisma } from "../prisma";
 import { setTaskCycle } from "../services/scheduling/actions";
+import { isISODate, isMonday } from "../services/scheduling/dates";
 import { syncUpcomingMeetings, TX_OPTIONS } from "../services/scheduling/repository";
 
 const statusInput = z.enum(["Pending", "Completed", "pending", "completed"]);
@@ -58,8 +59,11 @@ const taskFields = {
 
   // Monday meeting scheduling
   discussionFrequency: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY"]).optional().nullable(),
-  monthlyMondayOrdinal: z
-    .union([z.literal(-1), z.number().int().min(1).max(4)])
+  // M: allocated Monday of the month (1-5). FT: a Monday the cycle runs from.
+  monthlyMondayOrdinal: z.number().int().min(1).max(5).optional().nullable(),
+  fortnightAnchor: z
+    .string()
+    .refine((v) => isISODate(v) && isMonday(v), "must be a Monday (YYYY-MM-DD)")
     .optional()
     .nullable(),
 };
@@ -67,11 +71,14 @@ const taskFields = {
 type ScheduleFields = {
   discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
   monthlyMondayOrdinal?: number | null;
+  fortnightAnchor?: string | null;
 };
 
 function hasScheduleFields(body: ScheduleFields): boolean {
   return (
-    body.discussionFrequency !== undefined || body.monthlyMondayOrdinal !== undefined
+    body.discussionFrequency !== undefined ||
+    body.monthlyMondayOrdinal !== undefined ||
+    body.fortnightAnchor !== undefined
   );
 }
 
@@ -190,7 +197,13 @@ async function applyScheduleFields(taskId: string, body: ScheduleFields, userId:
   await prisma.$transaction(async (tx) => {
     const current = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
     const cycle = body.discussionFrequency !== undefined ? body.discussionFrequency : current.discussionFrequency;
-    await setTaskCycle(tx, current, cycle, body.monthlyMondayOrdinal, userId);
+    await setTaskCycle(
+      tx,
+      current,
+      cycle,
+      { monthlyMondayOrdinal: body.monthlyMondayOrdinal, fortnightAnchor: body.fortnightAnchor },
+      userId
+    );
     await syncUpcomingMeetings(tx);
   }, TX_OPTIONS);
   return prisma.task.findUniqueOrThrow({ where: { id: taskId }, include: taskInclude });

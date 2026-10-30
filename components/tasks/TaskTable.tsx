@@ -10,6 +10,12 @@ import { FaDownload } from "react-icons/fa";
 
 import { apiFetch, formatDate, getRole, type ApiAttachment, type ApiTask } from "@/lib/api";
 import { removeAttachment } from "@/lib/attachments";
+
+const REVIEW_TITLE: Record<string, string> = {
+  W: "Weekly – every Monday",
+  FT: "Fortnightly – once every two weeks",
+  M: "Monthly – once a month",
+};
 import { AttachmentList } from "@/components/attachments/Attachments";
 
 import { DESIGNATIONS } from "@/lib/designations";
@@ -974,6 +980,7 @@ const handleDeleteBoUpdate = async (
             <col className="col-done" />
             <col className="col-date" />
             <col className="col-task" />
+            <col className="col-review" />
             <col className="col-coordinator" />
             <col className="col-other-officers" />
             <col className="col-action-plan" />
@@ -995,6 +1002,8 @@ const handleDeleteBoUpdate = async (
               <th>Date</th>
 
               <th>Task</th>
+
+              <th>Review Frequency</th>
 
               <th>Co-ordinator Officer</th>
 
@@ -1100,15 +1109,39 @@ const handleDeleteBoUpdate = async (
 
                 </td>
 
-                {/* 4 - Co-ordinator Officer */}
+                                {/* 4 - Review Frequency (W / FT / M) and allocated Monday */}
+                <td>
+                  {task.reviewCode ? (
+                    <>
+                      <span
+                        className={`review-code code-${task.reviewCode}`}
+                        title={REVIEW_TITLE[task.reviewCode]}
+                      >
+                        {task.reviewCode}
+                      </span>
+                      <span className="review-allocated">
+                        {task.allocatedMonday}
+                        {task.nextDiscussionDate && (
+                          <>
+                            <br />
+                            Next: {formatDate(task.nextDiscussionDate)}
+                          </>
+                        )}
+                      </span>
+                    </>
+                  ) : (
+                    "-"
+                  )}
+                </td>
 
+                {/* 5 - Co-ordinator Officer */}
                 <td>
 
                   {task.officer.designation}
 
                 </td>
 
-                {/* 5 - Other Officers */}
+                {/* 6 - Other Officers */}
 
                 <td>
 
@@ -1124,7 +1157,7 @@ const handleDeleteBoUpdate = async (
 
               </td>
 
-                 {/* 6 - Action Plan */}
+                 {/* 7 - Action Plan */}
 
 <td>
 
@@ -1172,7 +1205,7 @@ const handleDeleteBoUpdate = async (
 
 
 
-              {/* 7 - Action Plan TDC */}
+              {/* 8 - Action Plan TDC */}
 
         <td>
 
@@ -1186,13 +1219,13 @@ const handleDeleteBoUpdate = async (
 
 
 
-                {/* 8 - Execution TDC */}
+                {/* 9 - Execution TDC */}
 
                 <td>{formatDate(task.dueDate)}</td>
 
                 <td>
 
-                  {/* 9 - Status */}
+                  {/* 10 - Status */}
 
                   <span className={`status ${task.status.toLowerCase()}`}>
 
@@ -1202,11 +1235,11 @@ const handleDeleteBoUpdate = async (
 
                 </td>
 
-                {/* 10 - DRM Remark */}
+                {/* 11 - DRM Remark */}
 
                 <td>{task.remarks || "-"}</td>
 
-                {/* 11 - DRM Attachment */}
+                {/* 12 - DRM Attachment */}
                 <td>
                   <AttachmentList
                     attachments={task.attachments ?? []}
@@ -1216,7 +1249,7 @@ const handleDeleteBoUpdate = async (
                   />
                 </td>
 
-                {/* 12 - BO Remark */}
+                {/* 13 - BO Remark */}
 
 <td>
 

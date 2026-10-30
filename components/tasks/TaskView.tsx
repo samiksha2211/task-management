@@ -315,6 +315,22 @@ export default function TaskView({ id }: { id?: string }) {
       value: task.remarks || "-",
     },
     {
+      label: "Review Frequency",
+      value: task.reviewCode ? (
+        <span className={`review-code code-${task.reviewCode}`}>{task.reviewCode}</span>
+      ) : (
+        "Not assigned"
+      ),
+    },
+    {
+      label: "Allocated Monday",
+      value: task.allocatedMonday || "-",
+    },
+    {
+      label: "Scheduled Discussion",
+      value: task.nextDiscussionDate ? formatDate(task.nextDiscussionDate) : "-",
+    },
+    {
       label: "DRM Attachments",
       value: <AttachmentList attachments={task.attachments ?? []} emptyText="-" />,
     },

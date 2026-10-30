@@ -42,19 +42,22 @@ export function Modal({
 /** Move a task's next discussion to another Monday. Its cycle stays the same. */
 export function RescheduleDialog({
   task,
+  fromDate,
   upcomingMonday,
   busy,
   onCancel,
   onConfirm,
 }: {
   task: RegisterTask;
+  /** The Monday being moved. */
+  fromDate: string | null;
   upcomingMonday: string;
   busy: boolean;
   onCancel: () => void;
   onConfirm: (toDate: string, reason: string) => void;
 }) {
   const mondays = Array.from({ length: 12 }, (_, i) => addDaysISO(upcomingMonday, 7 * i)).filter(
-    (d) => d !== task.nextDiscussionDate
+    (d) => d !== fromDate
   );
   const [toDate, setToDate] = useState(mondays[0]);
   const [reason, setReason] = useState("");
@@ -62,12 +65,12 @@ export function RescheduleDialog({
   return (
     <Modal title="Reschedule discussion" subtitle={`#${task.taskNumber} · ${task.title}`} onClose={onCancel}>
       <p className="mtg-muted" style={{ marginTop: 12 }}>
-        Currently: {fmtDay(task.nextDiscussionDate)}. The task stays{" "}
-        {task.cycle ? CYCLE_LABEL[task.cycle].toLowerCase() : "without a cycle"}; after it is discussed, its normal
-        cycle continues.
+        Move this review from {fmtDay(fromDate)} to another Monday. Only this one date changes: the task stays{" "}
+        {task.reviewCode ?? "without a review frequency"}
+        {task.cycle ? ` (${CYCLE_LABEL[task.cycle].toLowerCase()})` : ""} and its other Mondays are unchanged.
       </p>
       <div className="mtg-field">
-        <label htmlFor="mtg-reschedule-date">Discuss on</label>
+        <label htmlFor="mtg-reschedule-date">Move to</label>
         <select id="mtg-reschedule-date" value={toDate} onChange={(e) => setToDate(e.target.value)}>
           {mondays.map((d) => (
             <option key={d} value={d}>

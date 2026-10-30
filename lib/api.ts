@@ -31,6 +31,11 @@ export type ApiTask = {
   // Monday meeting scheduling
   discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
   monthlyMondayOrdinal?: number | null;
+  fortnightAnchor?: string | null;
+  /** W / FT / M */
+  reviewCode?: "W" | "FT" | "M" | null;
+  /** e.g. "Every Monday", "3rd Monday", "2nd Monday · alternate weeks" */
+  allocatedMonday?: string | null;
   lastDiscussedAt?: string | null;
   nextDiscussionDate?: string | null;
   scheduleState?: string;

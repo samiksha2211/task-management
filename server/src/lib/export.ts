@@ -96,6 +96,12 @@ export interface TaskExportRow {
   /** Optional section heading (e.g. discussion cycle) drawn before the row's group. */
   group?: string;
 
+  // Monday meeting columns (only in PDFs that ask for them).
+  review?: string;
+  allocatedMonday?: string;
+  scheduledDate?: string;
+  latestRemark?: string;
+
 }
 
 
@@ -335,7 +341,8 @@ type CellAlign = "left" | "center";
 interface PdfColumn {
   key: "serial" | "date" | "task" | "coordinatorOfficer" | "otherOfficers" |
        "actionPlan" | "actionPlanTdc" | "executionTdc" | "status" |
-       "drmRemark" | "boRemark";
+       "drmRemark" | "boRemark" |
+       "review" | "allocatedMonday" | "scheduledDate" | "latestRemark";
   label: string;
   pct: number;
   align: CellAlign;
@@ -359,6 +366,17 @@ const PDF_LAYOUT: PdfColumn[] = [
   { key: "status", label: "Status", pct: 7, align: "center" },
   { key: "drmRemark", label: "DRM Remark / File", pct: 8, align: "left" },
   { key: "boRemark", label: "BO Remark / File", pct: 7, align: "left" },
+  // Monday meeting columns
+  { key: "review", label: "Review Freq.", pct: 7, align: "center" },
+  { key: "allocatedMonday", label: "Allocated Monday", pct: 9, align: "center" },
+  { key: "scheduledDate", label: "Scheduled Discussion", pct: 9, align: "center" },
+  { key: "latestRemark", label: "Latest Remark / Update", pct: 30, align: "left" },
+];
+
+/** The Task Report columns, in order. */
+const TASK_REPORT_COLUMNS: PdfColumn["key"][] = [
+  "serial", "date", "task", "coordinatorOfficer", "otherOfficers", "actionPlan",
+  "actionPlanTdc", "executionTdc", "status", "drmRemark", "boRemark",
 ];
 
 const A4_LANDSCAPE_WIDTH = 841.89;
@@ -401,21 +419,20 @@ const tableWidth = (cols: PdfLayoutColumn[]): number =>
 
 export type PdfColumnKey = PdfColumn["key"];
 
-// Width freed by hidden columns goes to the text-heavy columns.
-const WIDEN_ON_HIDE: PdfColumnKey[] = ["task", "actionPlan", "drmRemark", "boRemark"];
-
-function buildColumns(exclude: PdfColumnKey[] = []): PdfLayoutColumn[] {
-  const layout = PDF_LAYOUT.filter((c) => !exclude.includes(c.key));
-  const base = layout.map((c) => Math.round((c.pct / 100) * PAGE_WIDTH));
-  const cols = layout.map((c, i): PdfLayoutColumn => ({ ...c, width: base[i] }));
-  const freed = PAGE_WIDTH - base.reduce((s, w) => s + w, 0);
-  if (exclude.length > 0) {
-    const widen = cols.filter((c) => WIDEN_ON_HIDE.includes(c.key));
-    const share = Math.floor(freed / widen.length);
-    widen.forEach((c) => (c.width += share));
-  }
-  const task = cols.find((c) => c.key === "task");
-  if (task) task.width += Math.round(PAGE_WIDTH - tableWidth(cols));
+/**
+ * Columns in the given order, sized by their share of the page width. The
+ * Task Report (all default columns) keeps exactly its original widths.
+ */
+function buildColumns(keys: PdfColumnKey[]): PdfLayoutColumn[] {
+  const layout = keys.map((k) => {
+    const col = PDF_LAYOUT.find((c) => c.key === k);
+    if (!col) throw new Error(`Unknown PDF column: ${k}`);
+    return col;
+  });
+  const totalPct = layout.reduce((sum, c) => sum + c.pct, 0);
+  const cols = layout.map((c): PdfLayoutColumn => ({ ...c, width: Math.round((c.pct / totalPct) * PAGE_WIDTH) }));
+  const widest = cols.find((c) => c.key === "task") ?? cols[0];
+  widest.width += Math.round(PAGE_WIDTH - tableWidth(cols));
   return cols;
 }
 
@@ -709,6 +726,18 @@ function drawRowContent(
       }
     } else if (col.key === "drmRemark" || col.key === "boRemark") {
       drawRemarkCell(doc, col, fonts, cx, y, rowH, row);
+    } else if (col.key === "review") {
+      const [code, ...rest] = cellValue(row, col).split("\n");
+      const detail = rest.length ? measureLines(doc, fonts.regular, rest.join(" "), contentW, CELL_SIZE) : [];
+      let ty = y + CELL_PAD_Y + (rowH - CELL_PAD_Y * 2 - (1 + detail.length) * LINE_HEIGHT) / 2;
+      doc.font(fonts.bold).fontSize(TITLE_SIZE).fillColor(TITLE_COLOR)
+        .text(code, cx + CELL_PAD_X, ty, { width: contentW, align: "center", lineGap: 0 });
+      ty += LINE_HEIGHT;
+      doc.font(fonts.regular).fontSize(CELL_SIZE).fillColor(CELL_TEXT_COLOR);
+      for (const line of detail) {
+        doc.text(line, cx + CELL_PAD_X, ty, { width: contentW, align: "center", lineGap: 0 });
+        ty += LINE_HEIGHT;
+      }
     } else {
       const lines = measureLines(doc, fonts.regular, cellValue(row, col), contentW, CELL_SIZE);
       const textH = lines.length * LINE_HEIGHT;
@@ -730,7 +759,16 @@ function drawRowContent(
 
 export async function exportToPdf(
   rows: TaskExportRow[],
-  meta: { title: string; subtitle: string; exclude?: PdfColumnKey[] }
+  meta: {
+    title: string;
+    subtitle: string;
+    /** Columns to show, in order (default: the Task Report columns). */
+    columns?: PdfColumnKey[];
+    /** Task Report columns to leave out. */
+    exclude?: PdfColumnKey[];
+    /** Header text overrides, e.g. { task: "Task Name" }. */
+    labels?: Partial<Record<PdfColumnKey, string>>;
+  }
 ): Promise<Buffer> {
   const doc = new PDFDocument({
     size: "A4",
@@ -747,7 +785,9 @@ export async function exportToPdf(
   });
 
   const fonts = registerFonts(doc);
-  const cols = buildColumns(meta.exclude);
+  const cols = buildColumns(
+    meta.columns ?? TASK_REPORT_COLUMNS.filter((k) => !(meta.exclude ?? []).includes(k))
+  ).map((c) => ({ ...c, label: meta.labels?.[c.key] ?? c.label }));
   const tableW = tableWidth(cols);
   const pageWidth = doc.page.width - PDF_MARGIN * 2;
   const x = PDF_MARGIN + (pageWidth - tableW) / 2;

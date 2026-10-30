@@ -64,8 +64,11 @@ model Task {
   // untouched: a task with no discussionFrequency is "not yet scheduled" and
   // never appears on an agenda until a user assigns one.
   discussionFrequency        DiscussionFrequency?
-  // MONTHLY tasks: which Monday of the following month (1-4, or -1 = last). Null = first.
+  // MONTHLY tasks: allocated Monday of every month (1-5; a 5th Monday falls
+  // back to the month's last Monday). Null = 1st.
   monthlyMondayOrdinal       Int?
+  // FORTNIGHTLY tasks: a Monday the alternate-week cycle runs from.
+  fortnightAnchor            DateTime?            @db.Date
   lastDiscussedAt            DateTime?            @db.Date
   nextDiscussionDate         DateTime?            @db.Date
   // The date the frequency rule had produced before a deferral / bring-forward.

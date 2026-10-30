@@ -114,26 +114,33 @@ npm run db:studio    # prisma studio
 
 ## Monday meeting scheduling
 
-The **Monday Meeting** page (`/meetings`, admin only) has three cycle cards (Weekly, Fortnightly,
-Monthly) and a Monday Agenda card. Each cycle card opens a register of **every** task in that
-cycle, in any status, with search, a status filter, sorting, a per-row cycle selector and a
-**Download PDF** button. Task status (Pending / Overdue / Completed) is shown, never used for scheduling.
+The **Monday Meeting** page (`/meetings`, admin only) has cards for **W** (Weekly), **FT**
+(Fortnightly) and **M** (Monthly) tasks and a Monday Agenda card. Each card opens a register of
+**every** task with that review frequency, in any status, with search, a status filter, sorting,
+and per-row Review Frequency and Allocated Monday selectors. The Tasks page shows the same
+review code, allocated Monday and next date next to each task.
 
-Rules live in `server/src/services/scheduling/rules.ts` (pure functions, unit-tested).
+The schedule is a fixed calendar (`server/src/services/scheduling/rules.ts`, unit-tested), shared
+by the website and every PDF:
 
-| Cycle       | First discussion (never discussed) | After a discussion on day *D* |
-| ----------- | ---------------------------------- | ----------------------------- |
-| WEEKLY      | The upcoming Monday | The Monday after *D* |
-| FORTNIGHTLY | The upcoming Monday | *D* + 14 days (the Monday on or after) |
-| MONTHLY     | Chosen Monday of next month (first by default) | Chosen Monday of the month after *D* |
+| Code | Frequency   | Due on |
+| ---- | ----------- | ------ |
+| W    | Weekly      | Every Monday |
+| FT   | Fortnightly | Every other Monday, counted from its start Monday (`fortnightAnchor`); runs across months |
+| M    | Monthly     | Its allocated Monday of every month, 1st–5th (`monthlyMondayOrdinal`); a 5th Monday falls back to the last Monday in four-Monday months |
 
-- A task is on a Monday's agenda only if its next discussion date is on or before that Monday,
-  so a task appears at most once per meeting (also enforced by a unique `meetingId + taskId` key).
-- Only ticking **Discussed** moves a task's schedule; it can be unticked to restore the previous date.
-- **Reschedule** moves one task's next discussion to another Monday without changing its cycle.
-- Changing a cycle recalculates only the future date; past discussions are kept.
-- Tasks without a cycle are never on an agenda and are listed under "Assign cycles".
+- Selecting a Monday shows exactly the tasks due that day; nothing carries over and nothing is
+  allocated by hand. Ticking **Discussed** only records it.
+- Each task appears at most once per Monday (agenda built per task; `meetingId + taskId` is unique).
+  Viewing the agenda or generating PDFs stores nothing.
+- **Reschedule** moves one review date to another Monday; the frequency and other dates stay.
+- Changing the frequency or allocated Monday updates future dates at once; past meetings are kept.
+- Tasks without a review frequency are never on an agenda.
 - `MEETING_TIME_ZONE` (default `Asia/Kolkata`) decides what "today" is.
+
+PDFs: the **Monday agenda PDF** uses the compact table (S.No, Task Name, Review Freq., Allocated
+Monday, Scheduled Discussion, Status, Latest Remark). The **W / FT / M register PDFs** use the
+Task Report layout with the review frequency and allocated Monday next to the task.
 
 ### API (admin only)
 
@@ -144,9 +151,9 @@ Rules live in `server/src/services/scheduling/rules.ts` (pure functions, unit-te
 | GET    | `/api/meetings/agenda?date=YYYY-MM-DD` | Tasks due on a Monday |
 | POST   | `/api/meetings/:date/items/:taskId/outcome` | `{ outcome: "DISCUSSED" | "PENDING" }` |
 | GET    | `/api/meetings/:date/export?format=pdf|xlsx|csv` | Agenda download |
-| PATCH  | `/api/schedule/tasks/:id/cycle` | `{ cycle, monthlyMondayOrdinal? }` |
+| PATCH  | `/api/schedule/tasks/:id/cycle` | `{ cycle, monthlyMondayOrdinal? (1-5), fortnightAnchor? (Monday) }` |
 | POST   | `/api/schedule/cycle` | Same, for many tasks: `{ taskIds, cycle }` |
-| POST   | `/api/schedule/tasks/:id/reschedule` | `{ toDate, reason? }` |
+| POST   | `/api/schedule/tasks/:id/reschedule` | `{ toDate, fromDate?, reason? }` |
 | GET    | `/api/schedule/tasks/:id/history` | Scheduling history |
 
 The production database was created without Prisma migration history, so the scheduling

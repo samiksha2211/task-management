@@ -136,6 +136,7 @@ export async function syncPendingTasks(): Promise<SyncResult> {
       ...(item.discussionFrequency && {
         discussionFrequency: item.discussionFrequency,
         monthlyMondayOrdinal: item.monthlyMondayOrdinal ?? null,
+        fortnightAnchor: item.fortnightAnchor ?? null,
       }),
       clientRequestId: item.clientRequestId,
       }),

@@ -11,19 +11,43 @@ export const CYCLE_LABEL: Record<Cycle, string> = {
   MONTHLY: "Monthly",
 };
 
-export const CYCLE_HINT: Record<Cycle, string> = {
-  WEEKLY: "Discussed every Monday",
-  FORTNIGHTLY: "Every two weeks after the last discussion",
-  MONTHLY: "A set Monday of the following month",
+/** Short review-frequency codes used everywhere (website and PDFs). */
+export const REVIEW_CODE: Record<Cycle, "W" | "FT" | "M"> = {
+  WEEKLY: "W",
+  FORTNIGHTLY: "FT",
+  MONTHLY: "M",
 };
 
+export const CYCLE_HINT: Record<Cycle, string> = {
+  WEEKLY: "Weekly – every Monday",
+  FORTNIGHTLY: "Fortnightly – once every two weeks",
+  MONTHLY: "Monthly – once a month",
+};
+
+/** Allocated Monday of the month for M tasks. */
 export const ORDINAL_OPTIONS: { value: number; label: string }[] = [
-  { value: 1, label: "First Monday" },
-  { value: 2, label: "Second Monday" },
-  { value: 3, label: "Third Monday" },
-  { value: 4, label: "Fourth Monday" },
-  { value: -1, label: "Last Monday" },
+  { value: 1, label: "1st Monday" },
+  { value: 2, label: "2nd Monday" },
+  { value: 3, label: "3rd Monday" },
+  { value: 4, label: "4th Monday" },
+  { value: 5, label: "5th Monday" },
 ];
+
+export const FIFTH_MONDAY_NOTE = "In months with four Mondays, a 5th-Monday task is on the last Monday.";
+
+/** Which Monday of its month a date is: "1st Monday" ... "5th Monday". */
+export function mondayPositionLabel(date: string): string {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDate();
+  return ORDINAL_OPTIONS[Math.ceil(day / 7) - 1]?.label ?? "";
+}
+
+/** The two alternate-week choices for a fortnightly task: starting on the coming Monday or the one after. */
+export function fortnightStartOptions(upcomingMonday: string): { value: string; label: string }[] {
+  return [upcomingMonday, addDaysISO(upcomingMonday, 7)].map((d) => ({
+    value: d,
+    label: `From ${fmtMonday(d)} (${mondayPositionLabel(d)}), then every other Monday`,
+  }));
+}
 
 export interface RegisterTask {
   id: string;
@@ -33,7 +57,12 @@ export interface RegisterTask {
   status: TaskStatusLabel;
   dueDate: string;
   cycle: Cycle | null;
+  reviewCode: "W" | "FT" | "M" | null;
   monthlyMondayOrdinal: number | null;
+  fortnightAnchor: string | null;
+  /** "Every Monday", "3rd Monday", "2nd Monday · alternate weeks" */
+  allocatedMonday: string | null;
+  /** Next Monday the task is scheduled for discussion. */
   nextDiscussionDate: string | null;
   lastDiscussedAt: string | null;
   rescheduled: boolean;
@@ -49,6 +78,8 @@ export interface RegisterResponse {
 }
 
 export interface AgendaTask extends RegisterTask {
+  /** The meeting date the task is on. */
+  scheduledDate: string;
   reason: string;
   inclusion: "DUE" | "BROUGHT_FORWARD" | "MANUAL";
   outcome: "PENDING" | "DISCUSSED" | "NOT_DISCUSSED" | "DEFERRED";
@@ -115,22 +146,27 @@ export const getRegister = () => apiFetch<RegisterResponse>("/api/meetings/regis
 export const getAgenda = (date?: string) =>
   apiFetch<AgendaResponse>(`/api/meetings/agenda${date ? `?date=${date}` : ""}`);
 
-export const setCycle = (taskId: string, cycle: Cycle | null, monthlyMondayOrdinal?: number | null) =>
+export interface CycleOptions {
+  monthlyMondayOrdinal?: number | null;
+  fortnightAnchor?: string | null;
+}
+
+export const setCycle = (taskId: string, cycle: Cycle | null, options: CycleOptions = {}) =>
   apiFetch(`/api/schedule/tasks/${taskId}/cycle`, {
     method: "PATCH",
-    body: JSON.stringify({ cycle, monthlyMondayOrdinal }),
+    body: JSON.stringify({ cycle, ...options }),
   });
 
-export const setCycleBulk = (taskIds: string[], cycle: Cycle | null, monthlyMondayOrdinal?: number | null) =>
+export const setCycleBulk = (taskIds: string[], cycle: Cycle | null, options: CycleOptions = {}) =>
   apiFetch<{ updated: number }>("/api/schedule/cycle", {
     method: "POST",
-    body: JSON.stringify({ taskIds, cycle, monthlyMondayOrdinal }),
+    body: JSON.stringify({ taskIds, cycle, ...options }),
   });
 
-export const rescheduleTask = (taskId: string, toDate: string, reason?: string) =>
+export const rescheduleTask = (taskId: string, toDate: string, reason?: string, fromDate?: string) =>
   apiFetch(`/api/schedule/tasks/${taskId}/reschedule`, {
     method: "POST",
-    body: JSON.stringify({ toDate, reason }),
+    body: JSON.stringify({ toDate, reason, fromDate }),
   });
 
 export const markDiscussed = (date: string, taskId: string, discussed: boolean) =>
