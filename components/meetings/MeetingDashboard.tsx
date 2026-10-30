@@ -516,8 +516,8 @@ function RegisterView({
                 </th>
               )}
               <th>S. No.</th>
-              {header("title", "Task Name")}
               <th>Review Frequency</th>
+              {header("title", "Task Name")}
               <th>Allocated Monday</th>
               {header("nextDiscussionDate", "Scheduled Discussion")}
               {header("status", "Status")}
@@ -547,13 +547,13 @@ function RegisterView({
                 )}
                 <td className="mtg-id">{index + 1}</td>
                 <td>
+                  <FrequencySelect task={t} disabled={busy} onChange={(cycle) => onSchedule(t, cycle)} />
+                </td>
+                <td>
                   <div className="mtg-task-title">{t.title}</div>
                   <div className="mtg-muted">
                     #{t.taskNumber} · {t.officer}
                   </div>
-                </td>
-                <td>
-                  <FrequencySelect task={t} disabled={busy} onChange={(cycle) => onSchedule(t, cycle)} />
                 </td>
                 <td>
                   <AllocatedMonday
@@ -696,8 +696,8 @@ function AgendaView({
               <thead>
                 <tr>
                   <th>S. No.</th>
-                  <th>Task Name</th>
                   <th>Review Frequency</th>
+                  <th>Task Name</th>
                   <th>Allocated Monday</th>
                   <th>Scheduled Discussion</th>
                   <th>Status</th>
@@ -715,13 +715,13 @@ function AgendaView({
                     <tr key={t.id} className={done ? "is-done" : ""}>
                       <td className="mtg-id">{serial}</td>
                       <td>
+                        <ReviewBadge task={t} />
+                      </td>
+                      <td>
                         <div className="mtg-task-title">{t.title}</div>
                         <div className="mtg-muted">
                           #{t.taskNumber} · {t.officer}
                         </div>
-                      </td>
-                      <td>
-                        <ReviewBadge task={t} />
                       </td>
                       <td>{t.allocatedMonday || "—"}</td>
                       <td className="mtg-nowrap">

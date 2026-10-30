@@ -152,16 +152,21 @@ const pdfInclude = {
   attachments: { orderBy: { createdAt: "asc" as const } },
 } satisfies Prisma.TaskInclude;
 
-// Register PDFs: the Task Report layout (without Action Plan TDC) with the
-// review frequency next to the task.
+// Register PDFs: the Task Report layout (without Action Plan TDC). A single
+// W / FT / M register needs no review column (its title says the frequency);
+// the combined register shows it to the left of the task.
 const REGISTER_COLUMNS: PdfColumnKey[] = [
-  "serial", "date", "task", "review", "coordinatorOfficer", "otherOfficers",
+  "serial", "date", "task", "coordinatorOfficer", "otherOfficers",
+  "actionPlan", "executionTdc", "status", "drmRemark", "boRemark",
+];
+const ALL_REGISTER_COLUMNS: PdfColumnKey[] = [
+  "serial", "date", "review", "task", "coordinatorOfficer", "otherOfficers",
   "actionPlan", "executionTdc", "status", "drmRemark", "boRemark",
 ];
 
 // Monday agenda PDF: the compact meeting table.
 const AGENDA_COLUMNS: PdfColumnKey[] = [
-  "serial", "task", "review", "allocatedMonday", "scheduledDate", "status", "latestRemark",
+  "serial", "review", "task", "allocatedMonday", "scheduledDate", "status", "latestRemark",
 ];
 
 type StatusChoice = "all" | "pending" | "overdue" | "completed" | "pending_overdue";
@@ -262,7 +267,7 @@ export async function downloadRegisterPdf(req: AuthRequest, res: Response): Prom
   const pdf = await exportToPdf(all ? groupedRows(rows, tasks) : rows, {
     title,
     subtitle: `Status: ${STATUS_CHOICE_LABEL[q.status]}  •  W = Weekly, FT = Fortnightly, M = Monthly  •  Generated ${generatedAt()}  •  ${tasks.length} task(s)`,
-    columns: REGISTER_COLUMNS,
+    columns: all ? ALL_REGISTER_COLUMNS : REGISTER_COLUMNS,
   });
   const statusPart = q.status === "all" ? "" : `_${q.status}`;
   sendPdf(res, pdf, `monday_meeting_${q.cycle.toLowerCase()}${statusPart}_${today()}.pdf`);

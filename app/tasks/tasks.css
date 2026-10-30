@@ -415,19 +415,19 @@
     min-width:120px;
 }
 
-/* 3 - Task */
+/* 3 - Review Frequency */
 .task-list-table th:nth-child(3),
 .task-list-table td:nth-child(3) {
+    width:130px;
+    min-width:130px;
+}
+
+/* 4 - Task */
+.task-list-table th:nth-child(4),
+.task-list-table td:nth-child(4) {
     width:260px;
     min-width:260px;
     overflow-wrap:anywhere;
-}
-
-/* 4 - Review Frequency */
-.task-list-table th:nth-child(4),
-.task-list-table td:nth-child(4) {
-    width:130px;
-    min-width:130px;
 }
 
 .review-code {

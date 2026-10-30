@@ -979,8 +979,8 @@ const handleDeleteBoUpdate = async (
           <colgroup>
             <col className="col-done" />
             <col className="col-date" />
-            <col className="col-task" />
             <col className="col-review" />
+            <col className="col-task" />
             <col className="col-coordinator" />
             <col className="col-other-officers" />
             <col className="col-action-plan" />
@@ -1001,9 +1001,9 @@ const handleDeleteBoUpdate = async (
 
               <th>Date</th>
 
-              <th>Task</th>
-
               <th>Review Frequency</th>
+
+              <th>Task</th>
 
               <th>Co-ordinator Officer</th>
 
@@ -1077,7 +1077,32 @@ const handleDeleteBoUpdate = async (
 
                 <td>{formatDate(task.date)}</td>
 
-                {/* 3 - Task */}
+                {/* 3 - Review Frequency (W / FT / M) and allocated Monday */}
+                <td>
+                  {task.reviewCode ? (
+                    <>
+                      <span
+                        className={`review-code code-${task.reviewCode}`}
+                        title={REVIEW_TITLE[task.reviewCode]}
+                      >
+                        {task.reviewCode}
+                      </span>
+                      <span className="review-allocated">
+                        {task.allocatedMonday}
+                        {task.nextDiscussionDate && (
+                          <>
+                            <br />
+                            Next: {formatDate(task.nextDiscussionDate)}
+                          </>
+                        )}
+                      </span>
+                    </>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+
+                {/* 4 - Task */}
 
                 <td>
 
@@ -1107,31 +1132,6 @@ const handleDeleteBoUpdate = async (
 
                   )}
 
-                </td>
-
-                                {/* 4 - Review Frequency (W / FT / M) and allocated Monday */}
-                <td>
-                  {task.reviewCode ? (
-                    <>
-                      <span
-                        className={`review-code code-${task.reviewCode}`}
-                        title={REVIEW_TITLE[task.reviewCode]}
-                      >
-                        {task.reviewCode}
-                      </span>
-                      <span className="review-allocated">
-                        {task.allocatedMonday}
-                        {task.nextDiscussionDate && (
-                          <>
-                            <br />
-                            Next: {formatDate(task.nextDiscussionDate)}
-                          </>
-                        )}
-                      </span>
-                    </>
-                  ) : (
-                    "-"
-                  )}
                 </td>
 
                 {/* 5 - Co-ordinator Officer */}
