@@ -15,6 +15,10 @@
 // be moved with Reschedule: the task is then on the new Monday instead of the
 // original one, and its regular calendar is unchanged.
 //
+// A task is never on a Monday before it was created. A finalized meeting's
+// agenda is frozen (see the meetings controller), so tasks created afterwards
+// start at the following Monday.
+//
 // Each task appears at most once per Monday (and the database allows one
 // agenda row per task per meeting). Tasks that are completed, deleted, or have
 // no review frequency are never on an agenda.
@@ -52,6 +56,8 @@ export interface SchedulableTask {
   title: string;
   status: "PENDING" | "COMPLETED" | "OVERDUE";
   deleted: boolean;
+  /** Day the task was created (meeting time zone). It is not on agendas before then. */
+  createdOn?: ISODate | null;
   frequency: Cycle | null;
   /** MONTHLY: allocated Monday of the month, 1-5 (null = 1st). */
   monthlyMondayOrdinal: number | null;
@@ -141,6 +147,8 @@ export function hasReschedule(task: Pick<SchedulableTask, "scheduleState" | "nex
 /** Is the task to be discussed at the meeting on this Monday? */
 export function isDueOn(task: SchedulableTask, date: ISODate): boolean {
   if (isTaskClosed(task) || !isMonday(date)) return false;
+  // A new task's first meeting is the Monday it was created on, or the next one.
+  if (task.createdOn && date < mondayOnOrAfter(task.createdOn)) return false;
   if (hasReschedule(task)) {
     if (date === task.nextDiscussionDate) return true;
     if (date === task.originalDiscussionDate) return false;

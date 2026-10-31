@@ -22,6 +22,7 @@ export function toSchedulable(task: Task): SchedulableTask {
     title: task.title,
     status: task.status,
     deleted: task.deletedAt !== null,
+    createdOn: todayISO(defaultSchedulingConfig.timeZone, task.createdAt),
     frequency: task.discussionFrequency,
     monthlyMondayOrdinal: task.monthlyMondayOrdinal,
     fortnightAnchor: toISODateOrNull(task.fortnightAnchor),
@@ -185,7 +186,8 @@ export async function syncMeetingAgenda(tx: Tx, meeting: Meeting): Promise<void>
 /** Re-sync stored agendas of meetings from today on, after a schedule change. */
 export async function syncUpcomingMeetings(tx: Tx): Promise<void> {
   const meetings = await tx.meeting.findMany({
-    where: { meetingDate: { gte: fromISODate(today()) } },
+    // Finalized meetings are frozen; only drafts follow schedule changes.
+    where: { status: "DRAFT", meetingDate: { gte: fromISODate(today()) } },
   });
   for (const meeting of meetings) await syncMeetingAgenda(tx, meeting);
 }

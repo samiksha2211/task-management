@@ -18,6 +18,8 @@ import {
   PendingAttachmentsField,
 } from "@/components/attachments/Attachments";
 import { useRealtime } from "@/lib/realtime";
+import { WORD_LIMIT, overWordLimit } from "@/lib/wordLimit";
+import WordCount from "@/components/WordCount";
 
 export default function TaskView({ id }: { id?: string }) {
   const router = useRouter();
@@ -167,6 +169,13 @@ export default function TaskView({ id }: { id?: string }) {
     ) {
       setUpdateError(
         "Please enter an Action Plan, BO's Remark, or select an attachment."
+      );
+      return;
+    }
+
+    if (overWordLimit(actionPlan) || overWordLimit(boRemark)) {
+      setUpdateError(
+        `Action Plan and BO's Remark can each be at most ${WORD_LIMIT} words. Please shorten the text before submitting.`
       );
       return;
     }
@@ -462,6 +471,7 @@ export default function TaskView({ id }: { id?: string }) {
               placeholder="Enter action plan"
               rows={4}
             />
+            <WordCount text={actionPlan} />
           </div>
 
           <div className="bo-response-field">
@@ -478,6 +488,7 @@ export default function TaskView({ id }: { id?: string }) {
               placeholder="Enter BO's remark"
               rows={4}
             />
+            <WordCount text={boRemark} />
           </div>
 
           <div className="bo-response-field">
@@ -495,7 +506,7 @@ export default function TaskView({ id }: { id?: string }) {
             type="button"
             className="btn-status"
             onClick={handleOfficerUpdate}
-            disabled={submittingUpdate}
+            disabled={submittingUpdate || overWordLimit(actionPlan) || overWordLimit(boRemark)}
           >
             {submittingUpdate
               ? "Submitting..."

@@ -115,6 +115,8 @@ router.post("/tasks/:id/restore", requireAuth, requireAdmin, tasks.restore);
 router.get("/meetings/register", requireAuth, requireAdmin, meetings.getRegister);
 router.get("/meetings/register/pdf", requireAuth, requireAdmin, meetings.downloadRegisterPdf);
 router.get("/meetings/agenda", requireAuth, requireAdmin, meetings.getAgenda);
+router.post("/meetings/:date/finalize", requireAuth, requireAdmin, meetings.finalizeAgenda);
+router.post("/meetings/:date/reopen", requireAuth, requireAdmin, meetings.reopenAgenda);
 router.get("/meetings/:date/export", requireAuth, requireAdmin, meetings.exportAgenda);
 router.post("/meetings/:date/items/:taskId/outcome", requireAuth, requireAdmin, meetings.recordOutcome);
 router.post("/schedule/cycle", requireAuth, requireAdmin, meetings.setCycleBulk);

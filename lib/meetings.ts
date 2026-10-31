@@ -90,6 +90,9 @@ export interface AgendaResponse {
   meetingDate: string;
   today: string;
   upcomingMonday: string;
+  /** Finalized agendas are frozen; tasks created afterwards go to the next Monday. */
+  finalized: boolean;
+  finalizedAt: string | null;
   items: AgendaTask[];
 }
 
@@ -174,6 +177,12 @@ export const markDiscussed = (date: string, taskId: string, discussed: boolean) 
     method: "POST",
     body: JSON.stringify({ outcome: discussed ? "DISCUSSED" : "PENDING" }),
   });
+
+export const finalizeAgenda = (date: string) =>
+  apiFetch<AgendaResponse>(`/api/meetings/${date}/finalize`, { method: "POST" });
+
+export const reopenAgenda = (date: string) =>
+  apiFetch<AgendaResponse>(`/api/meetings/${date}/reopen`, { method: "POST" });
 
 export const getHistory = (taskId: string) => apiFetch<HistoryResponse>(`/api/schedule/tasks/${taskId}/history`);
 

@@ -164,10 +164,14 @@ const ALL_REGISTER_COLUMNS: PdfColumnKey[] = [
   "actionPlan", "executionTdc", "status", "drmRemark", "boRemark",
 ];
 
-// Monday agenda PDF: the compact meeting table.
+// Monday agenda PDF: the meeting table. BO remarks and action plans (up to
+// 60 words each) get the widest columns.
 const AGENDA_COLUMNS: PdfColumnKey[] = [
-  "serial", "review", "task", "allocatedMonday", "scheduledDate", "status", "latestRemark",
+  "serial", "review", "task", "allocatedMonday", "scheduledDate", "status", "latestBoRemark", "actionPlan",
 ];
+const AGENDA_WIDTHS: Partial<Record<PdfColumnKey, number>> = {
+  serial: 5, review: 7, task: 17, allocatedMonday: 9, scheduledDate: 8, status: 7, latestBoRemark: 23.5, actionPlan: 23.5,
+};
 
 type StatusChoice = "all" | "pending" | "overdue" | "completed" | "pending_overdue";
 
@@ -204,8 +208,15 @@ function pdfRows(tasks: ExportTask[], from: ISODate, scheduledOn?: ISODate, with
       officerUpdates: [...task.officerUpdates].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
     });
     const date = scheduledOn ?? view.nextDiscussionDate;
+    const latestBo = [...task.officerUpdates]
+      .filter((u) => u.remark?.trim())
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
     return {
       ...row,
+      latestBoRemark: latestBo
+        ? `${latestBo.remark!.trim()}
+— ${latestBo.officer.designation}, ${fmt(toISODate(latestBo.createdAt))}`
+        : "-",
       review: view.reviewCode
         ? withAllocation && view.allocatedMonday
           ? `${view.reviewCode}\n${view.allocatedMonday.replace(" · alternate weeks", ", alt. weeks")}`
@@ -267,6 +278,7 @@ export async function downloadRegisterPdf(req: AuthRequest, res: Response): Prom
   const pdf = await exportToPdf(all ? groupedRows(rows, tasks) : rows, {
     title,
     subtitle: `Status: ${STATUS_CHOICE_LABEL[q.status]}  •  W = Weekly, FT = Fortnightly, M = Monthly  •  Generated ${generatedAt()}  •  ${tasks.length} task(s)`,
+    footer: `RailWork  ·  ${title}`,
     columns: all ? ALL_REGISTER_COLUMNS : REGISTER_COLUMNS,
   });
   const statusPart = q.status === "all" ? "" : `_${q.status}`;
@@ -370,6 +382,24 @@ export async function rescheduleTask(req: AuthRequest, res: Response): Promise<v
       type: patch.scheduleState === "DEFERRED" ? "DEFERRED" : patch.scheduleState === "SCHEDULED" ? "RESCHEDULED" : "BROUGHT_FORWARD",
       userId: req.user!.id,
     });
+    // An explicit move also updates finalized agendas: off the old Monday,
+    // onto the new one (at most one row per task per meeting).
+    const finalized = await tx.meeting.findMany({
+      where: {
+        status: "FINALIZED",
+        meetingDate: { in: [fromISODate(body.toDate), ...(patch.originalDiscussionDate ? [fromISODate(patch.originalDiscussionDate)] : [])] },
+      },
+    });
+    for (const m of finalized) {
+      if (toISODate(m.meetingDate) === body.toDate) {
+        await tx.meetingAgendaItem.createMany({
+          data: [{ meetingId: m.id, taskId: task.id, section: task.discussionFrequency ?? "NEW", inclusion: "BROUGHT_FORWARD", reason: patch.scheduleReason ?? "Rescheduled" }],
+          skipDuplicates: true,
+        });
+      } else {
+        await tx.meetingAgendaItem.deleteMany({ where: { meetingId: m.id, taskId: task.id, outcome: "PENDING" } });
+      }
+    }
     await syncUpcomingMeetings(tx);
   }, TX_OPTIONS);
   changed();
@@ -424,7 +454,12 @@ async function agendaView(meetingDate: ISODate) {
   });
   const stored = meeting?.items ?? [];
   const storedByTask = new Map(stored.map((i) => [i.taskId, i]));
-  const { result } = await computeAgenda(prisma, meetingDate, stored);
+  const finalized = meeting?.status === "FINALIZED" || meeting?.status === "CLOSED";
+  // A finalized agenda is exactly what was stored when it was finalized;
+  // otherwise it is worked out from the review calendar.
+  const result = finalized
+    ? { entries: stored.map((i) => ({ taskId: i.taskId, reason: i.reason, inclusion: i.inclusion, outcome: i.outcome })) }
+    : (await computeAgenda(prisma, meetingDate, stored)).result;
 
   const details = await prisma.task.findMany({
     where: { id: { in: result.entries.map((e) => e.taskId) } },
@@ -451,7 +486,51 @@ async function agendaView(meetingDate: ISODate) {
         CYCLES.indexOf(a.cycle as Cycle) - CYCLES.indexOf(b.cycle as Cycle) || a.taskNumber - b.taskNumber
     );
 
-  return { meetingDate, today: today(), upcomingMonday: mondayOnOrAfter(today()), items };
+  return {
+    meetingDate,
+    today: today(),
+    upcomingMonday: mondayOnOrAfter(today()),
+    finalized,
+    finalizedAt: meeting?.finalizedAt?.toISOString() ?? null,
+    items,
+  };
+}
+
+/**
+ * Finalize a Monday's agenda: the tasks due now are stored and the list is
+ * frozen. Tasks created or changed afterwards go to the following Monday.
+ * Safe to repeat (one meeting per Monday, one row per task).
+ */
+export async function finalizeAgenda(req: AuthRequest, res: Response): Promise<void> {
+  const meetingDate = validate(mondayDate, param(req, "date"));
+  await prisma.$transaction(async (tx) => {
+    const meeting = await tx.meeting.upsert({
+      where: { meetingDate: fromISODate(meetingDate) },
+      create: { meetingDate: fromISODate(meetingDate) },
+      update: {},
+    });
+    if (meeting.status !== "DRAFT") return;
+    await syncMeetingAgenda(tx, meeting);
+    await tx.meeting.update({ where: { id: meeting.id }, data: { status: "FINALIZED", finalizedAt: new Date() } });
+  }, TX_OPTIONS);
+  changed();
+  res.json(await agendaView(meetingDate));
+}
+
+/** Reopen a finalized agenda; it follows the review calendar again. */
+export async function reopenAgenda(req: AuthRequest, res: Response): Promise<void> {
+  const meetingDate = validate(mondayDate, param(req, "date"));
+  await prisma.$transaction(async (tx) => {
+    const meeting = await tx.meeting.findUnique({ where: { meetingDate: fromISODate(meetingDate) } });
+    if (!meeting || meeting.status === "DRAFT") return;
+    const reopened = await tx.meeting.update({
+      where: { id: meeting.id },
+      data: { status: "DRAFT", finalizedAt: null, closedAt: null },
+    });
+    await syncMeetingAgenda(tx, reopened);
+  }, TX_OPTIONS);
+  changed();
+  res.json(await agendaView(meetingDate));
 }
 
 export async function getAgenda(req: AuthRequest, res: Response): Promise<void> {
@@ -484,7 +563,7 @@ export async function recordOutcome(req: AuthRequest, res: Response): Promise<vo
       update: {},
     });
     let item = await tx.meetingAgendaItem.findUnique({ where: { meetingId_taskId: { meetingId: meeting.id, taskId } } });
-    if (!item) {
+    if (!item && meeting.status === "DRAFT") {
       await syncMeetingAgenda(tx, meeting);
       item = await tx.meetingAgendaItem.findUnique({ where: { meetingId_taskId: { meetingId: meeting.id, taskId } } });
     }
@@ -556,11 +635,25 @@ export async function exportAgenda(req: AuthRequest, res: Response): Promise<voi
     const order = new Map(view.items.map((item, i) => [item.id, i]));
     const tasks = unsorted.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
     const rows = pdfRows(tasks, meetingDate, meetingDate).map((r) => ({ ...r, description: "" }));
+    const count = (c: Cycle) => tasks.filter((t) => t.discussionFrequency === c).length;
+    const longDate = fromISODate(meetingDate).toLocaleDateString("en-GB", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
     const pdf = await exportToPdf(groupedRows(rows, tasks), {
-      title: `Monday Meeting — ${fmt(meetingDate)}`,
-      subtitle: `${tasks.length} task(s) scheduled for discussion  •  W = Weekly, FT = Fortnightly, M = Monthly  •  Generated ${generatedAt()}`,
+      title: "Monday Review Meeting",
+      subtitle:
+        `Agenda for ${longDate}  •  ${tasks.length} task(s): W ${count("WEEKLY")} · FT ${count("FORTNIGHTLY")} · M ${count("MONTHLY")}  •  ` +
+        `${view.finalized ? "Agenda finalized" : "Agenda not yet finalized"}  •  Generated ${generatedAt()}` +
+        `
+W = Weekly (every Monday)   FT = Fortnightly (alternate Mondays)   M = Monthly (allocated Monday)`,
       columns: AGENDA_COLUMNS,
-      labels: { task: "Task Name" },
+      widths: AGENDA_WIDTHS,
+      labels: { serial: "S. No.", task: "Task Name", review: "Review Freq.", latestBoRemark: "Latest BO Remarks", actionPlan: "Action Plan" },
+      footer: `RailWork  ·  Monday Review Meeting, ${fmt(meetingDate)}`,
     });
     sendPdf(res, pdf, `monday_agenda_${meetingDate}.pdf`);
     return;

@@ -27,6 +27,7 @@ import { validate } from "../lib/validate";
 import type { AuthRequest } from "../middleware/auth";
 import { prisma } from "../prisma";
 import { setTaskCycle } from "../services/scheduling/actions";
+import { withinWordLimit, wordLimitMessage } from "../lib/wordLimit";
 import { isISODate, isMonday } from "../services/scheduling/dates";
 import { syncUpcomingMeetings, TX_OPTIONS } from "../services/scheduling/repository";
 
@@ -41,7 +42,11 @@ const taskFields = {
   description: z.string().optional().nullable(),
   date: z.coerce.date(),
   dueDate: z.coerce.date(),
-  actionPlan: z.string().optional().nullable(),
+  actionPlan: z
+    .string()
+    .refine((v) => withinWordLimit(v), wordLimitMessage("Action Plan"))
+    .optional()
+    .nullable(),
   actionPlanTdc: z.coerce.date().optional().nullable(),
   remarks: z.string().optional().nullable(),
   officerId: z.string().min(1),
@@ -88,8 +93,18 @@ const createSchema = z.object({
 });
 const updateSchema = z.object(taskFields).partial();
 const officerUpdateSchema = z.object({
-  actionPlan: z.string().trim().optional().nullable(),
-  remark: z.string().trim().optional().nullable(),
+  actionPlan: z
+    .string()
+    .trim()
+    .refine((v) => withinWordLimit(v), wordLimitMessage("Action Plan"))
+    .optional()
+    .nullable(),
+  remark: z
+    .string()
+    .trim()
+    .refine((v) => withinWordLimit(v), wordLimitMessage("BO Remark"))
+    .optional()
+    .nullable(),
 
   // Legacy single attachment (still accepted; stored as an attachment row).
   attachmentUrl: z.string().optional().nullable(),
@@ -415,9 +430,13 @@ try {
     });
     task = await prisma.task.findUniqueOrThrow({ where: { id: task.id }, include: taskInclude });
   }
-  if (hasScheduleFields(body)) {
-    task = await applyScheduleFields(task.id, body, req.user?.id ?? null);
-  }
+  // Every new task is reviewed weekly (W) unless another frequency, or
+  // explicitly none (null), was chosen; it can be changed to FT or M later.
+  task = await applyScheduleFields(
+    task.id,
+    { ...body, discussionFrequency: body.discussionFrequency === undefined ? "WEEKLY" : body.discussionFrequency },
+    req.user?.id ?? null
+  );
 
   console.log("Task created:", task.title);
   console.log(

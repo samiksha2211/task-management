@@ -391,3 +391,120 @@ html:not([data-theme="dark"]) body .form-group .array-field-row > button:hover {
     margin-right: 0;
   }
 }
+
+/* =====================================================================
+   Review-meeting styling: calm, administrative, easy to scan.
+===================================================================== */
+
+/* ---------- Forms: grouped sections ---------- */
+
+html body .task-form .form-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 18px 20px 6px;
+  margin-bottom: 18px;
+  background: #ffffff;
+}
+
+html body .task-form .form-section-title {
+  margin: 0 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #163d6b;
+}
+
+html body .task-form .form-section > .form-hint {
+  display: block;
+  margin: 4px 0 14px;
+}
+
+html body .bo-remark-block {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+html[data-theme="dark"] body .task-form .form-section {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+html[data-theme="dark"] body .task-form .form-section-title {
+  color: #e2e8f0;
+  border-color: #334155;
+}
+
+/* ---------- Word counter ---------- */
+
+html body .word-count {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+html body .word-count.is-near {
+  color: #9a6b00;
+}
+
+html body .word-count.is-over {
+  color: #c1241e;
+}
+
+html[data-theme="dark"] body .word-count {
+  color: #94a3b8;
+}
+
+html[data-theme="dark"] body .word-count.is-near {
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] body .word-count.is-over {
+  color: #fca5a5;
+}
+
+/* ---------- Task register table ---------- */
+
+html:not([data-theme="dark"]) body .task-list-table tbody tr:nth-child(even) td {
+  background: #fafbfd;
+}
+
+html:not([data-theme="dark"]) body .task-list-table tbody tr:hover td {
+  background: #f1f5fb;
+}
+
+html body .task-list-table.task-table th {
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+html body .task-list-table td {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* Status indicators: same colours as the PDFs. */
+html:not([data-theme="dark"]) body .status.pending,
+html:not([data-theme="dark"]) body .status-badge.pending {
+  background: #fff3d6;
+  color: #9a6b00;
+}
+
+html:not([data-theme="dark"]) body .status.overdue,
+html:not([data-theme="dark"]) body .status-badge.overdue {
+  background: #fbe3e3;
+  color: #c1241e;
+}
+
+html:not([data-theme="dark"]) body .status.completed,
+html:not([data-theme="dark"]) body .status-badge.completed {
+  background: #e2f3e7;
+  color: #1e7a3c;
+}

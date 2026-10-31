@@ -16,9 +16,10 @@ export default function StatusBadge({ status }: Props) {
     color = "#b45309";
   }
 
+  // Same colours as the task register and PDFs.
   if (status === "Overdue") {
-    background = "#dbeafe";
-    color = "#1d4ed8";
+    background = "#fbe3e3";
+    color = "#c1241e";
   }
 
   return (

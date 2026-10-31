@@ -136,6 +136,11 @@ by the website and every PDF:
 - **Reschedule** moves one review date to another Monday; the frequency and other dates stay.
 - Changing the frequency or allocated Monday updates future dates at once; past meetings are kept.
 - Tasks without a review frequency are never on an agenda.
+- New tasks are W (weekly) by default and are first on the Monday they are created on, or the next one.
+- **Finalize agenda** freezes a Monday's list; tasks created afterwards go to the following Monday.
+  **Reopen** makes it follow the calendar again. Viewing and PDF downloads never change anything.
+- Action Plan and BO Remarks are limited to 60 words each (live counter in the forms, checked by
+  the server; text is never shortened). Older longer text only needs shortening when it is edited.
 - `MEETING_TIME_ZONE` (default `Asia/Kolkata`) decides what "today" is.
 
 PDFs: the **Monday agenda PDF** uses the compact table (S.No, Task Name, Review Freq., Allocated
@@ -149,6 +154,7 @@ Task Report layout with the review frequency and allocated Monday next to the ta
 | GET    | `/api/meetings/register` | All tasks with cycle, status, dates, latest remarks; counts per cycle |
 | GET    | `/api/meetings/register/pdf?cycle=WEEKLY&status=all` | Cycle register PDF (`status`: all, pending, overdue, completed) |
 | GET    | `/api/meetings/agenda?date=YYYY-MM-DD` | Tasks due on a Monday |
+| POST   | `/api/meetings/:date/finalize` / `reopen` | Freeze / unfreeze a Monday's agenda |
 | POST   | `/api/meetings/:date/items/:taskId/outcome` | `{ outcome: "DISCUSSED" | "PENDING" }` |
 | GET    | `/api/meetings/:date/export?format=pdf|xlsx|csv` | Agenda download |
 | PATCH  | `/api/schedule/tasks/:id/cycle` | `{ cycle, monthlyMondayOrdinal? (1-5), fortnightAnchor? (Monday) }` |

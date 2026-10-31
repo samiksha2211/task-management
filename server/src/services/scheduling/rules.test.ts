@@ -272,3 +272,17 @@ describe("rescheduling one date", () => {
     assert.throws(() => planReschedule(task({ status: "COMPLETED" }), "2026-11-02", "", today), SchedulingError);
   });
 });
+
+describe("new tasks", () => {
+  test("are never on a Monday before they were created", () => {
+    const created = task({ frequency: "WEEKLY", createdOn: "2026-11-04" }); // a Wednesday
+    assert.equal(isDueOn(created, "2026-11-02"), false);
+    assert.equal(isDueOn(created, "2026-11-09"), true);
+    assert.equal(nextDueDate(created, "2026-11-01"), "2026-11-09");
+  });
+
+  test("created on a Monday: on that Monday's agenda", () => {
+    const created = task({ frequency: "WEEKLY", createdOn: "2026-11-02" });
+    assert.equal(isDueOn(created, "2026-11-02"), true);
+  });
+});

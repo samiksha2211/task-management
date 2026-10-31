@@ -476,3 +476,54 @@ html[data-theme="dark"] .meeting-page .mtg-cycle-card {
   align-items: center;
   gap: 8px;
 }
+
+/* Meeting summary strip */
+.mtg-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.mtg-stat {
+  flex: 1 1 110px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--mtg-line);
+  border-radius: 10px;
+  background: var(--mtg-soft);
+}
+
+.mtg-stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--mtg-ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.mtg-stat-value.is-urgent {
+  color: var(--mtg-urgent-ink);
+}
+
+.mtg-stat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mtg-muted);
+}
+
+.mtg-chip.is-info {
+  background: var(--mtg-info-bg);
+  color: var(--mtg-info-ink);
+}
+
+/* Readable tables during meetings */
+.mtg-table tbody tr:nth-child(even) td {
+  background: var(--mtg-soft);
+}
+
+.mtg-table tbody tr.is-done td {
+  opacity: 0.75;
+}

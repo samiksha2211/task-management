@@ -59,7 +59,7 @@ describe("review calendar", () => {
     const m1 = await createTask("Monthly 1st", { discussionFrequency: "MONTHLY", monthlyMondayOrdinal: 1 });
     const m5 = await createTask("Monthly 5th", { discussionFrequency: "MONTHLY", monthlyMondayOrdinal: 5 });
     const done = await createTask("Completed weekly", { discussionFrequency: "WEEKLY", status: "Completed" });
-    const none = await createTask("No frequency");
+    const none = await createTask("No frequency", { discussionFrequency: null });
     Object.assign(task, { w: w.id, ftA: ftA.id, ftB: ftB.id, m1: m1.id, m5: m5.id, done: done.id, none: none.id });
 
     assert.equal(w.reviewCode, "W");

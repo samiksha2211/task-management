@@ -14,6 +14,8 @@ import {
 import DesignationAutocomplete from "@/components/DesignationAutocomplete";
 import MultiDesignationSelect from "@/components/MultiDesignationSelect";
 import { PendingAttachmentsField } from "@/components/attachments/Attachments";
+import WordCount from "@/components/WordCount";
+import { WORD_LIMIT, countWords, overWordLimit } from "@/lib/wordLimit";
 import { EMPTY_PENDING, hasPending, uploadPending, type PendingAttachments } from "@/lib/attachments";
 import ScheduleFields, {
   EMPTY_SCHEDULE,
@@ -48,7 +50,8 @@ export default function AddTaskPage() {
   const [remarks, setRemarks] = useState("");
   const [saving, setSaving] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachments>(EMPTY_PENDING);
-  const [schedule, setSchedule] = useState<ScheduleValue>(EMPTY_SCHEDULE);
+  // Every new task is reviewed weekly (W) by default; it can be changed later.
+  const [schedule, setSchedule] = useState<ScheduleValue>({ ...EMPTY_SCHEDULE, cycle: "WEEKLY" });
 
   useEffect(() => {
     if (getRole() !== "ADMIN") {
@@ -91,11 +94,19 @@ export default function AddTaskPage() {
     });
   };
 
+  // All action plan lines together; the 60-word limit applies to the whole plan.
+  const actionPlanText = actionPlans.map((plan) => plan.trim()).filter(Boolean).join("\n");
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!taskName || !designation || !date) {
       alert("Please fill Date, Task Name and Designation");
+      return;
+    }
+
+    if (overWordLimit(actionPlanText)) {
+      alert(`Action Plan can be at most ${WORD_LIMIT} words (currently ${countWords(actionPlanText)}). Please shorten it.`);
       return;
     }
 
@@ -225,153 +236,173 @@ const additionalOfficerIds = additionalOfficerData.map(
 
             <form className="task-form" onSubmit={handleSubmit}>
 
-              <div className="form-group">
-                <label>Date</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                />
-              </div>
+              <section className="form-section">
+                <h2 className="form-section-title">Task details</h2>
 
-              <div className="form-group">
-                <label>Task Name</label>
-                <input
-                  type="text"
-                  placeholder="Track Repair"
-                  value={taskName}
-                  onChange={(e) => setTaskName(e.target.value)}
-                />
-              </div>
+                <div className="form-group">
+                  <label>Task Name</label>
+                  <input
+                    type="text"
+                    placeholder="Track Repair"
+                    value={taskName}
+                    onChange={(e) => setTaskName(e.target.value)}
+                  />
+                </div>
 
-              <div className="form-group">
-                <label>Designation</label>
-                <DesignationAutocomplete
-                  value={designation}
-                  onChange={setDesignation}
-                  placeholder="Type to search designation"
-                />
-              </div>
+                <div className="form-group">
+                  <label>Date</label>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => handleDateChange(e.target.value)}
+                  />
+                </div>
 
-              <div className="form-group">
-                <label>Also Assigned To</label>
-                <MultiDesignationSelect
-                  value={additionalDesignations}
-                  onChange={setAdditionalDesignations}
-                  exclude={designation}
-                />
+                <div className="form-group">
+                  <label>Description</label>
+                  <textarea
+                    rows={4}
+                    placeholder="Enter task description..."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
+              </section>
+
+              <section className="form-section">
+                <h2 className="form-section-title">Assignment and target</h2>
+
+                <div className="form-group">
+                  <label>Designation</label>
+                  <DesignationAutocomplete
+                    value={designation}
+                    onChange={setDesignation}
+                    placeholder="Type to search designation"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Also Assigned To</label>
+                  <MultiDesignationSelect
+                    value={additionalDesignations}
+                    onChange={setAdditionalDesignations}
+                    exclude={designation}
+                  />
+                  <span className="form-hint">
+                    Optional. Select one or more additional officers.
+                  </span>
+                </div>
+
+                <div className="form-group">
+                  <label>Status</label>
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                  >
+                    <option>Pending</option>
+                    <option>Completed</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Due In (Days)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 7"
+                    value={dueDays}
+                    onChange={(e) => handleDueDaysChange(e.target.value)}
+                  />
+                  <span className="form-hint">
+                    Auto-calculates the due date from the task date.
+                  </span>
+                </div>
+
+                <div className="form-group">
+                  <label>Execution TDC (Manual)</label>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => {
+                      setDueDate(e.target.value);
+                      setDueDays("");
+                    }}
+                  />
+                  <span className="form-hint">
+                    Optional. Picking a date manually overrides the days calculation.
+                  </span>
+                </div>
+              </section>
+
+              <section className="form-section">
+                <h2 className="form-section-title">Monday review</h2>
+                <ScheduleFields value={schedule} onChange={setSchedule} />
                 <span className="form-hint">
-                  Optional. Select one or more additional officers.
+                  New tasks are reviewed weekly (W) by default, so they come up at the next Monday meeting.
+                  Change to FT or M here or later.
                 </span>
-              </div>
+              </section>
 
-              <div className="form-group">
-                <label>Status</label>
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                >
-                  <option>Pending</option>
-                  <option>Completed</option>
-                </select>
-              </div>
+              <section className="form-section">
+                <h2 className="form-section-title">Action plan, remarks and attachments</h2>
 
-              <ScheduleFields value={schedule} onChange={setSchedule} />
+                <div className="form-group">
+                  <label>Action Plan</label>
+                  {actionPlans.map((plan, index) => (
+                    <div key={index} className="array-field-row">
+                      <textarea
+                        rows={3}
+                        placeholder={`Action Plan ${index + 1}`}
+                        value={plan}
+                        onChange={(e) => updateActionPlan(index, e.target.value)}
+                      />
+                      {actionPlans.length > 1 && (
+                        <button type="button" onClick={() => removeActionPlan(index)}>
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <WordCount text={actionPlanText} />
+                  <button type="button" onClick={addActionPlan}>
+                    + Add Action Plan
+                  </button>
+                </div>
 
-              <div className="form-group">
-                <label>Due In (Days)</label>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="e.g. 7"
-                  value={dueDays}
-                  onChange={(e) => handleDueDaysChange(e.target.value)}
-                />
-                <span className="form-hint">
-                  Auto-calculates the due date from the task date.
-                </span>
-              </div>
+                <div className="form-group">
+                  <label>Action Plan TDC</label>
+                  <input
+                    type="date"
+                    value={actionPlanTdc}
+                    onChange={(e) => setActionPlanTdc(e.target.value)}
+                  />
+                  <span className="form-hint">
+                    Action Plan TDC is decided by DRM.
+                  </span>
+                </div>
 
-              <div className="form-group">
-                <label>Execution TDC (Manual)</label>
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => {
-                    setDueDate(e.target.value);
-                    setDueDays("");
-                  }}
-                />
-                <span className="form-hint">
-                  Optional. Picking a date manually overrides the days calculation.
-                </span>
-              </div>
+                <div className="form-group">
+                  <label>DRM Remarks</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Enter remarks..."
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                  />
+                </div>
 
-              <div className="form-group">
-                <label>Action Plan</label>
-                {actionPlans.map((plan, index) => (
-                  <div key={index} className="array-field-row">
-                    <textarea
-                      rows={3}
-                      placeholder={`Action Plan ${index + 1}`}
-                      value={plan}
-                      onChange={(e) => updateActionPlan(index, e.target.value)}
-                    />
-                    {actionPlans.length > 1 && (
-                      <button type="button" onClick={() => removeActionPlan(index)}>
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <button type="button" onClick={addActionPlan}>
-                  + Add Action Plan
-                </button>
-              </div>
-
-              <div className="form-group">
-                <label>Action Plan TDC</label>
-                <input
-                  type="date"
-                  value={actionPlanTdc}
-                  onChange={(e) => setActionPlanTdc(e.target.value)}
-                />
-                <span className="form-hint">
-                  Action Plan TDC is decided by DRM.
-                </span>
-              </div>
-
-              <div className="form-group">
-                <label>DRM Remarks</label>
-                <textarea
-                  rows={3}
-                  placeholder="Enter remarks..."
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>DRM Attachments</label>
-                <PendingAttachmentsField value={attachments} onChange={setAttachments} />
-              </div>
-
-              <div className="form-group">
-                <label>Description</label>
-                <textarea
-                  rows={5}
-                  placeholder="Enter task description..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
-              </div>
+                <div className="form-group">
+                  <label>DRM Attachments</label>
+                  <PendingAttachmentsField value={attachments} onChange={setAttachments} />
+                </div>
+              </section>
 
               <div className="button-group">
 
                 <button
                   type="submit"
                   className="save-btn"
-                  disabled={saving}
+                  disabled={saving || overWordLimit(actionPlanText)}
                 >
                   {saving ? "Saving..." : "Save Task"}
                 </button>

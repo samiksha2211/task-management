@@ -101,6 +101,7 @@ export interface TaskExportRow {
   allocatedMonday?: string;
   scheduledDate?: string;
   latestRemark?: string;
+  latestBoRemark?: string;
 
 }
 
@@ -342,7 +343,7 @@ interface PdfColumn {
   key: "serial" | "date" | "task" | "coordinatorOfficer" | "otherOfficers" |
        "actionPlan" | "actionPlanTdc" | "executionTdc" | "status" |
        "drmRemark" | "boRemark" |
-       "review" | "allocatedMonday" | "scheduledDate" | "latestRemark";
+       "review" | "allocatedMonday" | "scheduledDate" | "latestRemark" | "latestBoRemark";
   label: string;
   pct: number;
   align: CellAlign;
@@ -371,6 +372,7 @@ const PDF_LAYOUT: PdfColumn[] = [
   { key: "allocatedMonday", label: "Allocated Monday", pct: 9, align: "center" },
   { key: "scheduledDate", label: "Scheduled Discussion", pct: 9, align: "center" },
   { key: "latestRemark", label: "Latest Remark / Update", pct: 30, align: "left" },
+  { key: "latestBoRemark", label: "Latest BO Remarks", pct: 23, align: "left" },
 ];
 
 /** The Task Report columns, in order. */
@@ -423,11 +425,11 @@ export type PdfColumnKey = PdfColumn["key"];
  * Columns in the given order, sized by their share of the page width. The
  * Task Report (all default columns) keeps exactly its original widths.
  */
-function buildColumns(keys: PdfColumnKey[]): PdfLayoutColumn[] {
+function buildColumns(keys: PdfColumnKey[], widths: Partial<Record<PdfColumnKey, number>> = {}): PdfLayoutColumn[] {
   const layout = keys.map((k) => {
     const col = PDF_LAYOUT.find((c) => c.key === k);
     if (!col) throw new Error(`Unknown PDF column: ${k}`);
-    return col;
+    return { ...col, pct: widths[k] ?? col.pct };
   });
   const totalPct = layout.reduce((sum, c) => sum + c.pct, 0);
   const cols = layout.map((c): PdfLayoutColumn => ({ ...c, width: Math.round((c.pct / totalPct) * PAGE_WIDTH) }));
@@ -542,55 +544,85 @@ function attachmentLinks(value: string): string[] {
     );
 }
 
-function taskLines(
-  doc: PDFKit.PDFDocument,
-  row: TaskExportRow,
-  width: number,
-  fonts: Fonts
-): { title: string[]; desc: string[]; count: number } {
-  const title = measureLines(doc, fonts.bold, row.task, width, TITLE_SIZE);
-  const desc = row.description
-    ? measureLines(doc, fonts.regular, row.description, width, DESC_SIZE)
-    : [];
-  return { title, desc, count: title.length + desc.length };
+// ---------------------------------------------------------------------------
+// Table rendering. Every cell is turned into a list of text lines first, so a
+// row's height is exact, text is never clipped, and a row taller than a page
+// continues on the next page.
+
+interface CellLine {
+  text: string;
+  font: string;
+  size: number;
+  color: string;
+  link?: string;
 }
 
-function remarkMetrics(
-  doc: PDFKit.PDFDocument,
-  row: TaskExportRow,
-  col: PdfLayoutColumn,
-  fonts: Fonts
-): { lines: string[]; links: string[]; count: number } {
-  const contentW = col.width - CELL_PAD_X * 2;
-  const isDrm = col.key === "drmRemark";
-  const text = isDrm ? row.drmRemark : row.boRemark;
-  const attachment = isDrm ? row.drmAttachment : row.boAttachment;
-  const lines = measureLines(doc, fonts.regular, text, contentW, CELL_SIZE);
-  const links = attachmentLinks(attachment);
-  return { lines, links, count: lines.length + links.length };
+interface Cell {
+  lines: CellLine[];
+  align: CellAlign;
+  /** Status badge drawn instead of text. */
+  badge?: string;
 }
 
-function rowHeight(
-  doc: PDFKit.PDFDocument,
-  cols: PdfLayoutColumn[],
-  row: TaskExportRow,
-  fonts: Fonts
-): number {
-  let maxLines = 1;
-  for (const col of cols) {
-    if (col.key === "status") continue;
-    const contentW = col.width - CELL_PAD_X * 2;
-    let n: number;
-    if (col.key === "task") {
-      n = taskLines(doc, row, contentW, fonts).count;
-    } else if (col.key === "drmRemark" || col.key === "boRemark") {
-      n = remarkMetrics(doc, row, col, fonts).count;
-    } else {
-      n = measureLines(doc, fonts.regular, cellValue(row, col), contentW, CELL_SIZE).length;
+/** Lines a status badge takes up. */
+const BADGE_LINES = 2;
+const MIN_ROW_H = 26;
+
+function cellOf(doc: PDFKit.PDFDocument, row: TaskExportRow, col: PdfLayoutColumn, fonts: Fonts): Cell {
+  const width = col.width - CELL_PAD_X * 2;
+  const plain = (text: string, font = fonts.regular, size = CELL_SIZE, color = CELL_TEXT_COLOR): CellLine[] =>
+    measureLines(doc, font, text, width, size).map((t) => ({ text: t, font, size, color }));
+
+  switch (col.key) {
+    case "status":
+      return { lines: [], align: "center", badge: row.status };
+    case "task":
+      return {
+        align: "left",
+        lines: [
+          ...plain(row.task, fonts.bold, TITLE_SIZE, TASK_TITLE_COLOR),
+          ...(row.description ? plain(row.description, fonts.regular, DESC_SIZE, TASK_DESC_COLOR) : []),
+        ],
+      };
+    case "review": {
+      const [code, ...rest] = cellValue(row, col).split("\n");
+      return {
+        align: "center",
+        lines: [
+          ...plain(code, fonts.bold, TITLE_SIZE, TITLE_COLOR),
+          ...(rest.length ? plain(rest.join(" ")) : []),
+        ],
+      };
     }
-    maxLines = Math.max(maxLines, n);
+    case "drmRemark":
+    case "boRemark": {
+      const isDrm = col.key === "drmRemark";
+      const links = attachmentLinks(isDrm ? row.drmAttachment : row.boAttachment);
+      return {
+        align: "left",
+        lines: [
+          ...plain(isDrm ? row.drmRemark : row.boRemark),
+          ...links.map((link, i) => ({
+            text: links.length === 1 ? "View Attachment" : `View Attachment ${i + 1}`,
+            font: fonts.regular,
+            size: LINK_SIZE,
+            color: LINK_COLOR,
+            link,
+          })),
+        ],
+      };
+    }
+    default:
+      return { align: col.align, lines: plain(cellValue(row, col) || "-") };
   }
-  return Math.max(30, maxLines * LINE_HEIGHT + CELL_PAD_Y * 2);
+}
+
+function cellLineCount(cell: Cell): number {
+  return cell.badge ? BADGE_LINES : Math.max(1, cell.lines.length);
+}
+
+function rowHeightFor(lineCount: number): number {
+  return Math.max(MIN_ROW_H, lineCount * LINE_HEIGHT + CELL_PAD_Y * 2);
 }
 
 function drawHeader(
@@ -602,20 +634,13 @@ function drawHeader(
 ): number {
   doc.rect(x, y, tableWidth(cols), HEADER_H).fill(HEAD_BG);
   let cx = x;
-  doc.font(fonts.bold).fontSize(HEADER_SIZE).fillColor(HEAD_FG);
-
   for (const col of cols) {
     const contentW = col.width - CELL_PAD_X * 2;
     const lines = measureLines(doc, fonts.bold, col.label, contentW, HEADER_SIZE);
-    const textH = lines.length * 9;
-    let ty = y + (HEADER_H - textH) / 2;
-
+    let ty = y + (HEADER_H - lines.length * 9) / 2;
+    doc.font(fonts.bold).fontSize(HEADER_SIZE).fillColor(HEAD_FG);
     for (const line of lines) {
-      doc.text(line, cx + CELL_PAD_X, ty, {
-        width: contentW,
-        align: col.align,
-        lineGap: 0,
-      });
+      doc.text(line, cx + CELL_PAD_X, ty, { width: contentW, align: col.align, lineGap: 0, lineBreak: false });
       ty += 9;
     }
     cx += col.width;
@@ -623,77 +648,34 @@ function drawHeader(
   return y + HEADER_H;
 }
 
-function drawStatusBadge(
-  doc: PDFKit.PDFDocument,
-  col: PdfLayoutColumn,
-  cx: number,
-  y: number,
-  rowH: number,
-  fonts: Fonts,
-  status: string
-): void {
+function drawStatusBadge(doc: PDFKit.PDFDocument, col: PdfLayoutColumn, cx: number, y: number, fonts: Fonts, status: string): void {
   const style = STATUS_STYLES[status] ?? STATUS_STYLES.Pending;
-  const size = 7.5;
-  const padX = 6;
-  doc.font(fonts.bold).fontSize(size);
-  const maxW = Math.max(20, col.width - 8);
-  const naturalW = doc.widthOfString(status) + padX * 2;
-  const bw = Math.min(naturalW, maxW);
+  doc.font(fonts.bold).fontSize(7.5);
+  const bw = Math.min(doc.widthOfString(status) + 12, Math.max(20, col.width - 8));
   const bh = 16;
   const bx = cx + (col.width - bw) / 2;
-  const by = y + (rowH - bh) / 2;
-  doc.roundedRect(bx, by, bw, bh, bh / 2).fill(style.bg);
-  doc.fillColor(style.fg).text(status, bx, by + 4, {
-    width: bw,
-    align: "center",
-    lineGap: 0,
-  });
+  doc.roundedRect(bx, y, bw, bh, bh / 2).fill(style.bg);
+  doc.fillColor(style.fg).text(status, bx, y + 4, { width: bw, align: "center", lineGap: 0, lineBreak: false });
 }
 
-function drawRemarkCell(
-  doc: PDFKit.PDFDocument,
-  col: PdfLayoutColumn,
-  fonts: Fonts,
-  cx: number,
-  y: number,
-  rowH: number,
-  row: TaskExportRow
-): void {
-  const contentW = col.width - CELL_PAD_X * 2;
-  const { lines, links } = remarkMetrics(doc, row, col, fonts);
-  const totalH = (lines.length + links.length) * LINE_HEIGHT;
-  let ty = y + CELL_PAD_Y + (rowH - CELL_PAD_Y * 2 - totalH) / 2;
-
-  doc.font(fonts.regular).fontSize(CELL_SIZE).fillColor(CELL_TEXT_COLOR);
-  for (const line of lines) {
-    doc.text(line, cx + CELL_PAD_X, ty, { width: contentW, lineGap: 0 });
-    ty += LINE_HEIGHT;
-  }
-
-  links.forEach((link, index) => {
-    const label = links.length === 1 ? "View Attachment" : `View Attachment ${index + 1}`;
-    doc.font(fonts.regular).fontSize(LINK_SIZE).fillColor(LINK_COLOR).text(
-      label,
-      cx + CELL_PAD_X,
-      ty,
-      { width: contentW, link, underline: true, lineGap: 0 }
-    );
-    ty += LINE_HEIGHT;
-  });
-}
-
-function drawRowContent(
+/**
+ * Draw lines [from, from + count) of every cell of a row, top-aligned.
+ * `continued` marks the later parts of a row split across pages.
+ */
+function drawRowPart(
   doc: PDFKit.PDFDocument,
   cols: PdfLayoutColumn[],
+  cells: Cell[],
   fonts: Fonts,
   x: number,
-  row: TaskExportRow,
   y: number,
   rowH: number,
-  isAlt: boolean
+  from: number,
+  count: number,
+  isAlt: boolean,
+  continued: boolean
 ): void {
   doc.rect(x, y, tableWidth(cols), rowH).fill(isAlt ? ALT_ROW_BG : "#FFFFFF");
-
   let vx = x;
   for (let i = 0; i < cols.length - 1; i++) {
     vx += cols[i].width;
@@ -701,60 +683,29 @@ function drawRowContent(
   }
 
   let cx = x;
-  for (const col of cols) {
+  cols.forEach((col, i) => {
+    const cell = cells[i];
     const contentW = col.width - CELL_PAD_X * 2;
-
-    if (col.key === "status") {
-      drawStatusBadge(doc, col, cx, y, rowH, fonts, row.status);
-    } else if (col.key === "task") {
-      const { title, desc } = taskLines(doc, row, contentW, fonts);
-      const total = title.length + desc.length;
-      let ty = y + CELL_PAD_Y + (rowH - CELL_PAD_Y * 2 - total * LINE_HEIGHT) / 2;
-
-      doc.font(fonts.bold).fontSize(TITLE_SIZE).fillColor(TASK_TITLE_COLOR);
-      for (const line of title) {
-        doc.text(line, cx + CELL_PAD_X, ty, { width: contentW, lineGap: 0 });
-        ty += LINE_HEIGHT;
-      }
-
-      if (desc.length) {
-        doc.font(fonts.regular).fontSize(DESC_SIZE).fillColor(TASK_DESC_COLOR);
-        for (const line of desc) {
-          doc.text(line, cx + CELL_PAD_X, ty, { width: contentW, lineGap: 0 });
-          ty += LINE_HEIGHT;
-        }
-      }
-    } else if (col.key === "drmRemark" || col.key === "boRemark") {
-      drawRemarkCell(doc, col, fonts, cx, y, rowH, row);
-    } else if (col.key === "review") {
-      const [code, ...rest] = cellValue(row, col).split("\n");
-      const detail = rest.length ? measureLines(doc, fonts.regular, rest.join(" "), contentW, CELL_SIZE) : [];
-      let ty = y + CELL_PAD_Y + (rowH - CELL_PAD_Y * 2 - (1 + detail.length) * LINE_HEIGHT) / 2;
-      doc.font(fonts.bold).fontSize(TITLE_SIZE).fillColor(TITLE_COLOR)
-        .text(code, cx + CELL_PAD_X, ty, { width: contentW, align: "center", lineGap: 0 });
-      ty += LINE_HEIGHT;
-      doc.font(fonts.regular).fontSize(CELL_SIZE).fillColor(CELL_TEXT_COLOR);
-      for (const line of detail) {
-        doc.text(line, cx + CELL_PAD_X, ty, { width: contentW, align: "center", lineGap: 0 });
-        ty += LINE_HEIGHT;
-      }
+    if (cell.badge) {
+      if (!continued) drawStatusBadge(doc, col, cx, y + CELL_PAD_Y - 2, fonts, cell.badge);
+    } else if (continued && col.key === "serial") {
+      doc.font(fonts.regular).fontSize(7).fillColor(TASK_DESC_COLOR)
+        .text("contd.", cx + CELL_PAD_X, y + CELL_PAD_Y, { width: contentW, align: "center", lineGap: 0, lineBreak: false });
     } else {
-      const lines = measureLines(doc, fonts.regular, cellValue(row, col), contentW, CELL_SIZE);
-      const textH = lines.length * LINE_HEIGHT;
-      let ty = y + CELL_PAD_Y + (rowH - CELL_PAD_Y * 2 - textH) / 2;
-      doc.font(fonts.regular).fontSize(CELL_SIZE).fillColor(CELL_TEXT_COLOR);
-      for (const line of lines) {
-        doc.text(line, cx + CELL_PAD_X, ty, {
+      let ty = y + CELL_PAD_Y;
+      for (const line of cell.lines.slice(from, from + count)) {
+        doc.font(line.font).fontSize(line.size).fillColor(line.color).text(line.text, cx + CELL_PAD_X, ty, {
           width: contentW,
-          align: col.align,
+          align: cell.align,
           lineGap: 0,
+          lineBreak: false,
+          ...(line.link && { link: line.link, underline: true }),
         });
         ty += LINE_HEIGHT;
       }
     }
-
     cx += col.width;
-  }
+  });
 }
 
 export async function exportToPdf(
@@ -768,12 +719,17 @@ export async function exportToPdf(
     exclude?: PdfColumnKey[];
     /** Header text overrides, e.g. { task: "Task Name" }. */
     labels?: Partial<Record<PdfColumnKey, string>>;
+    /** Relative column widths overriding the defaults. */
+    widths?: Partial<Record<PdfColumnKey, number>>;
+    /** Footer text on every page (left side). */
+    footer?: string;
   }
 ): Promise<Buffer> {
   const doc = new PDFDocument({
     size: "A4",
     layout: "landscape",
     margin: PDF_MARGIN,
+    bufferPages: true,
     info: { Title: meta.title },
   });
 
@@ -786,79 +742,124 @@ export async function exportToPdf(
 
   const fonts = registerFonts(doc);
   const cols = buildColumns(
-    meta.columns ?? TASK_REPORT_COLUMNS.filter((k) => !(meta.exclude ?? []).includes(k))
+    meta.columns ?? TASK_REPORT_COLUMNS.filter((k) => !(meta.exclude ?? []).includes(k)),
+    meta.widths
   ).map((c) => ({ ...c, label: meta.labels?.[c.key] ?? c.label }));
   const tableW = tableWidth(cols);
   const pageWidth = doc.page.width - PDF_MARGIN * 2;
   const x = PDF_MARGIN + (pageWidth - tableW) / 2;
+  // Room above the footer.
+  const bottom = doc.page.height - PDF_MARGIN - 16;
 
+  // Title block (first page).
   doc.font(fonts.bold).fontSize(17).fillColor(TITLE_COLOR)
-    .text(meta.title, PDF_MARGIN, PDF_MARGIN - 2);
-  doc.font(fonts.regular).fontSize(9).fillColor("#6B7280")
-    .text(meta.subtitle, PDF_MARGIN, PDF_MARGIN + 20);
-  doc.moveTo(x, PDF_MARGIN + 36).lineTo(x + tableW, PDF_MARGIN + 36)
-    .strokeColor("#CBD5E1").lineWidth(1).stroke();
+    .text(meta.title, PDF_MARGIN, PDF_MARGIN - 2, { lineBreak: false });
+  doc.font(fonts.regular).fontSize(9).fillColor("#4B5563")
+    .text(meta.subtitle, PDF_MARGIN, PDF_MARGIN + 20, { width: pageWidth });
+  const ruleY = Math.max(PDF_MARGIN + 36, doc.y + 4);
+  doc.moveTo(x, ruleY).lineTo(x + tableW, ruleY).strokeColor("#CBD5E1").lineWidth(1).stroke();
 
-  let y = PDF_MARGIN + 46;
-  y = drawHeader(doc, cols, fonts, x, y);
-  const headerBottomY = y;
-  let pageNum = 1;
-  const pageSeparators: number[] = [headerBottomY];
-
-  const drawFooter = (): void => {
-    doc.font(fonts.regular).fontSize(8).fillColor("#94A3B8").text(
-      `Page ${pageNum}`,
-      doc.page.width - PDF_MARGIN - 120,
-      doc.page.height - PDF_MARGIN - 12,
-      { width: 120, align: "right" }
-    );
-  };
+  let y = drawHeader(doc, cols, fonts, x, ruleY + 10);
+  const separators: number[] = [y];
 
   const flushSeparators = (): void => {
-    for (const yy of pageSeparators) {
-      doc.moveTo(x, yy).lineTo(x + tableW, yy)
-        .strokeColor(SEP_COLOR).lineWidth(0.6).stroke();
+    for (const yy of separators) {
+      doc.moveTo(x, yy).lineTo(x + tableW, yy).strokeColor(SEP_COLOR).lineWidth(0.6).stroke();
     }
-    pageSeparators.length = 0;
+    separators.length = 0;
   };
+
+  // Later pages: a short running title, then the column headings again.
+  const newPage = (): void => {
+    flushSeparators();
+    doc.addPage();
+    doc.font(fonts.bold).fontSize(9).fillColor(TITLE_COLOR)
+      .text(meta.title, x, PDF_MARGIN - 6, { width: tableW, lineBreak: false });
+    y = drawHeader(doc, cols, fonts, x, PDF_MARGIN + 10);
+    separators.push(y);
+  };
+  const freshPageLines = Math.floor((bottom - (PDF_MARGIN + 10 + HEADER_H) - CELL_PAD_Y * 2) / LINE_HEIGHT);
 
   const GROUP_H = 24;
   let lastGroup: string | undefined;
   let groupIndex = 0;
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const rowH = rowHeight(doc, cols, row, fonts);
+  rows.forEach((row, i) => {
+    const cells = cols.map((col) => cellOf(doc, row, col, fonts));
+    const lineCount = Math.max(...cells.map(cellLineCount));
+    const fullH = rowHeightFor(lineCount);
     const startsGroup = row.group !== undefined && row.group !== lastGroup;
-    const needed = rowH + (startsGroup ? GROUP_H : 0);
+    const isAlt = (row.group !== undefined ? groupIndex : i) % 2 === 1;
 
-    if (y + needed > doc.page.height - PDF_MARGIN) {
-      drawFooter();
-      flushSeparators();
-      doc.addPage();
-      pageNum += 1;
-      y = PDF_MARGIN + 6;
-      y = drawHeader(doc, cols, fonts, x, y);
-      pageSeparators.push(y);
-    }
+    // Keep a group heading with the first lines of its first row.
+    const firstPartH = Math.min(fullH, rowHeightFor(Math.min(lineCount, 4)));
+    if (y + (startsGroup ? GROUP_H : 0) + firstPartH > bottom) newPage();
 
     if (startsGroup) {
       doc.rect(x, y, tableW, GROUP_H).fill("#E8F1FB");
       doc.font(fonts.bold).fontSize(10).fillColor(TITLE_COLOR)
-        .text(row.group!, x + CELL_PAD_X, y + 7, { width: tableW - CELL_PAD_X * 2, lineGap: 0 });
+        .text(row.group!, x + CELL_PAD_X, y + 7, { width: tableW - CELL_PAD_X * 2, lineGap: 0, lineBreak: false });
       y += GROUP_H;
-      pageSeparators.push(y);
+      separators.push(y);
       lastGroup = row.group;
       groupIndex = 0;
     }
+    if (row.group !== undefined) groupIndex += 1;
 
-    drawRowContent(doc, cols, fonts, x, row, y, rowH, (row.group !== undefined ? groupIndex++ : i) % 2 === 1);
-    pageSeparators.push(y + rowH);
-    y += rowH;
+    if (y + fullH <= bottom) {
+      drawRowPart(doc, cols, cells, fonts, x, y, fullH, 0, lineCount, isAlt, false);
+      y += fullH;
+      separators.push(y);
+      return;
+    }
+    // A row that fits on a fresh page is moved there whole.
+    if (lineCount <= freshPageLines && fullH <= bottom - (PDF_MARGIN + 10 + HEADER_H)) {
+      newPage();
+      drawRowPart(doc, cols, cells, fonts, x, y, fullH, 0, lineCount, isAlt, false);
+      y += fullH;
+      separators.push(y);
+      return;
+    }
+    // Taller than a page: continue it across pages, nothing cut off.
+    let from = 0;
+    while (from < lineCount) {
+      let room = Math.floor((bottom - y - CELL_PAD_Y * 2) / LINE_HEIGHT);
+      if (room < 3) {
+        newPage();
+        room = freshPageLines;
+      }
+      const count = Math.min(room, lineCount - from);
+      const h = rowHeightFor(count);
+      drawRowPart(doc, cols, cells, fonts, x, y, h, from, count, isAlt, from > 0);
+      y += h;
+      separators.push(y);
+      from += count;
+      if (from < lineCount) newPage();
+    }
+  });
+
+  if (rows.length === 0) {
+    doc.font(fonts.regular).fontSize(10).fillColor(TASK_DESC_COLOR)
+      .text("No tasks.", x + CELL_PAD_X, y + 12, { lineBreak: false });
+  }
+  flushSeparators();
+
+  // Footer on every page: optional text on the left, "Page X of Y" on the right.
+  const range = doc.bufferedPageRange();
+  for (let p = range.start; p < range.start + range.count; p++) {
+    doc.switchToPage(p);
+    doc.page.margins.bottom = 0; // writing inside the margin must not add a page
+    const fy = doc.page.height - PDF_MARGIN - 6;
+    doc.moveTo(x, fy - 6).lineTo(x + tableW, fy - 6).strokeColor("#E2E8F0").lineWidth(0.5).stroke();
+    doc.font(fonts.regular).fontSize(8).fillColor("#94A3B8");
+    if (meta.footer) doc.text(meta.footer, x, fy, { width: tableW / 2, lineBreak: false });
+    doc.text(`Page ${p - range.start + 1} of ${range.count}`, x + tableW / 2, fy, {
+      width: tableW / 2,
+      align: "right",
+      lineBreak: false,
+    });
   }
 
-  flushSeparators();
-  drawFooter();
   doc.end();
   await finished;
   return Buffer.concat(chunks);

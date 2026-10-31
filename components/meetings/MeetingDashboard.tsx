@@ -12,6 +12,8 @@ import {
   addDaysISO,
   downloadAgenda,
   downloadRegisterPdf,
+  finalizeAgenda,
+  reopenAgenda,
   fmtDay,
   fmtMonday,
   fortnightStartOptions,
@@ -196,6 +198,15 @@ export default function MeetingDashboard() {
           busy={busy}
           onDate={(d) => loadAgenda(d)}
           onDiscussed={(t, discussed) => run(() => markDiscussed(agenda!.meetingDate, t.id, discussed))}
+          onFinalize={() =>
+            window.confirm(
+              `Finalize the agenda for ${fmtMonday(agenda!.meetingDate)}?\n\nThe list of ${agenda!.items.length} task(s) is frozen. Tasks created after this go to the following Monday.`
+            ) && run(() => finalizeAgenda(agenda!.meetingDate))
+          }
+          onReopen={() =>
+            window.confirm("Reopen this agenda? It will follow the review calendar again (new and changed tasks are included).") &&
+            run(() => reopenAgenda(agenda!.meetingDate))
+          }
           onReschedule={(t) => setDialog({ kind: "reschedule", task: t, fromDate: t.scheduledDate })}
           onHistory={(t) => setDialog({ kind: "history", task: t })}
         />
@@ -615,6 +626,8 @@ function AgendaView({
   busy,
   onDate,
   onDiscussed,
+  onFinalize,
+  onReopen,
   onReschedule,
   onHistory,
 }: {
@@ -622,6 +635,8 @@ function AgendaView({
   busy: boolean;
   onDate: (date: string) => void;
   onDiscussed: (task: AgendaTask, discussed: boolean) => void;
+  onFinalize: () => void;
+  onReopen: () => void;
   onReschedule: (task: AgendaTask) => void;
   onHistory: (task: AgendaTask) => void;
 }) {
@@ -653,19 +668,61 @@ function AgendaView({
     <div className="mtg-card">
       <div className="mtg-card-head">
         <div>
-          <h2>Agenda for {fmtMonday(date)}</h2>
+          <h2>
+            Agenda for {fmtMonday(date)}{" "}
+            {agenda.finalized ? (
+              <span className="mtg-chip is-ok">Finalized</span>
+            ) : (
+              <span className="mtg-chip is-info">Draft · updates automatically</span>
+            )}
+          </h2>
           <div className="mtg-muted">
-            {agenda.items.length} task(s) scheduled · {discussed} discussed. Tasks are selected automatically from their
-            review frequency; ticking “Discussed” only records it.
+            {agenda.finalized
+              ? `Finalized ${agenda.finalizedAt ? new Date(agenda.finalizedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : ""}. Tasks created after this go to the following Monday.`
+              : "Tasks are selected automatically from their review frequency. Finalize the agenda once it is sent out."}
           </div>
         </div>
         <div className="mtg-row-actions">
+          {agenda.finalized ? (
+            <button type="button" className="mtg-btn-ghost" disabled={busy} onClick={onReopen}>
+              Reopen
+            </button>
+          ) : (
+            <button type="button" className="mtg-btn-ghost" disabled={busy || agenda.items.length === 0} onClick={onFinalize}>
+              Finalize agenda
+            </button>
+          )}
           <button type="button" className="mtg-btn" disabled={downloading} onClick={() => download("pdf")}>
             Download agenda PDF
           </button>
           <button type="button" className="mtg-btn-ghost" disabled={downloading} onClick={() => download("xlsx")}>
             Excel
           </button>
+        </div>
+      </div>
+
+      <div className="mtg-summary" aria-label="Meeting summary">
+        <div className="mtg-stat">
+          <span className="mtg-stat-value">{agenda.items.length}</span>
+          <span className="mtg-stat-label">Tasks</span>
+        </div>
+        {CYCLES.map((c) => (
+          <div className="mtg-stat" key={c}>
+            <span className="mtg-stat-value">{agenda.items.filter((i) => i.cycle === c).length}</span>
+            <span className="mtg-stat-label">
+              <span className={`review-code code-${REVIEW_CODE[c]}`}>{REVIEW_CODE[c]}</span> {CYCLE_LABEL[c]}
+            </span>
+          </div>
+        ))}
+        <div className="mtg-stat">
+          <span className="mtg-stat-value is-urgent">{agenda.items.filter((i) => i.status === "Overdue").length}</span>
+          <span className="mtg-stat-label">Overdue</span>
+        </div>
+        <div className="mtg-stat">
+          <span className="mtg-stat-value">
+            {discussed}/{agenda.items.length}
+          </span>
+          <span className="mtg-stat-label">Discussed</span>
         </div>
       </div>
 

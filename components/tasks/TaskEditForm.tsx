@@ -13,6 +13,8 @@ import {
 } from "@/lib/attachments";
 import { AttachmentManager, PendingAttachmentsField } from "@/components/attachments/Attachments";
 import DesignationAutocomplete from "@/components/DesignationAutocomplete";
+import WordCount from "@/components/WordCount";
+import { WORD_LIMIT, countWords, overWordLimit } from "@/lib/wordLimit";
 import MultiDesignationSelect from "@/components/MultiDesignationSelect";
 import ScheduleFields, {
   EMPTY_SCHEDULE,
@@ -39,12 +41,16 @@ export default function TaskEditForm({ id }: { id?: string }) {
   const [remarks, setRemarks] = useState("");
   const [actionPlans, setActionPlans] = useState<string[]>([""]);
   const [actionPlanTdc, setActionPlanTdc] = useState("");
+  // Saved action plan, to tell whether it was edited.
+  const [initialActionPlan, setInitialActionPlan] = useState("");
   const [schedule, setSchedule] = useState<ScheduleValue>(EMPTY_SCHEDULE);
   const [initialSchedule, setInitialSchedule] = useState<ScheduleValue>(EMPTY_SCHEDULE);
   const [nextDiscussionDate, setNextDiscussionDate] = useState<string | null>(null);
   type BoRemarkItem = {
   id?: string;
   remark: string;
+  // Saved text of an existing remark, to tell whether it was edited.
+  originalRemark?: string;
   // Saved attachments of an existing BO entry
   attachments: ApiAttachment[];
   // Files/links chosen for a new BO entry, sent when the task is saved
@@ -101,6 +107,13 @@ export default function TaskEditForm({ id }: { id?: string }) {
           t.actionPlanTdc ? t.actionPlanTdc.slice(0, 10) : "" );
        
 
+          setInitialActionPlan(
+            (t.actionPlan ?? "")
+              .split("\n")
+              .map((plan) => plan.trim())
+              .filter(Boolean)
+              .join("\n")
+          );
           setActionPlans(
             t.actionPlan
               ? t.actionPlan
@@ -117,6 +130,7 @@ export default function TaskEditForm({ id }: { id?: string }) {
               .map((u) => ({
               id: u.id,
               remark: u.remark ?? "",
+              originalRemark: u.remark ?? "",
               attachments: u.attachments ?? [],
               pending: EMPTY_PENDING,
               }))
@@ -220,8 +234,29 @@ const removeBoRemark = async (index: number) => {
     );
   }
   };
+  // All action plan lines together; the 60-word limit applies to the whole plan.
+  const actionPlanText = actionPlans.map((plan) => plan.trim()).filter(Boolean).join("\n");
+  const actionPlanChanged = actionPlanText !== (initialActionPlan ?? "").trim();
+  const remarkChanged = (item: BoRemarkItem) => item.remark.trim() !== (item.originalRemark ?? "").trim();
+  const wordLimitProblem = (): string | null => {
+    if (actionPlanChanged && overWordLimit(actionPlanText)) {
+      return `Action Plan can be at most ${WORD_LIMIT} words (currently ${countWords(actionPlanText)}).`;
+    }
+    const bo = boRemarks.findIndex((item) => remarkChanged(item) && overWordLimit(item.remark));
+    if (bo >= 0) {
+      return `BO's Remark ${bo + 1} can be at most ${WORD_LIMIT} words (currently ${countWords(boRemarks[bo].remark)}).`;
+    }
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
+
+  const limitProblem = wordLimitProblem();
+  if (limitProblem) {
+    alert(`${limitProblem} Please shorten it before saving.`);
+    return;
+  }
 
   if (!id) {
     alert("Task ID is missing");
@@ -294,8 +329,8 @@ const removeBoRemark = async (index: number) => {
         date,
         dueDate: effectiveDueDate,
 
-        // Action Plan
-        actionPlan: finalActionPlan,
+        // Action Plan (only sent when edited)
+        ...(actionPlanChanged && { actionPlan: finalActionPlan }),
 
         // Action Plan TDC
         actionPlanTdc:
@@ -318,6 +353,7 @@ for (const item of boRemarks) {
 
   // Existing BO Remark (its attachments are saved as they are added/removed)
   if (item.id) {
+    if (!remarkChanged(item)) continue;
     await apiFetch(
       `/api/tasks/${id}/officer-updates/${item.id}`,
       {
@@ -431,215 +467,230 @@ for (const item of boRemarks) {
 
       <form className="task-form" onSubmit={handleSubmit}>
 
-        <div className="form-group">
-          <label>Date</label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => handleDateChange(e.target.value)}
-          />
-        </div>
+        <section className="form-section">
+          <h2 className="form-section-title">Task details</h2>
 
-        <div className="form-group">
-          <label>Task Name</label>
-          <input
-            type="text"
-            placeholder="Track Repair"
-            value={taskName}
-            onChange={(e) => setTaskName(e.target.value)}
-          />
-        </div>
-
-        <div className="form-group">
-          <label>Designation</label>
-          <DesignationAutocomplete
-            value={designation}
-            onChange={setDesignation}
-            placeholder="Type to search designation"
-          />
-        </div>
-        <div className="form-group">
-          <label>Also Assigned To</label>
-          <MultiDesignationSelect
-            value={additionalDesignations}
-            onChange={setAdditionalDesignations}
-            exclude={designation}
-          />
-          <span className="form-hint">
-            Optional. Select one or more additional officers.
-          </span>
-        </div>
-
-        <div className="form-group">
-          <label>Status</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            <option>Pending</option>
-            <option>Completed</option>
-          </select>
-        </div>
-
-        <ScheduleFields
-          value={schedule}
-          onChange={setSchedule}
-          nextDiscussionDate={nextDiscussionDate}
-        />
-
-        <div className="form-group">
-          <label>Due In (Days)</label>
-          <input
-            type="number"
-            min="0"
-            placeholder="e.g. 7"
-            value={dueDays}
-            onChange={(e) => handleDueDaysChange(e.target.value)}
-          />
-          <span className="form-hint">
-            Auto-calculates the due date from the task date.
-          </span>
-        </div>
-
-        <div className="form-group">
-          <label>Execution TDC (Manual)</label>
-          <input
-            type="date"
-            value={dueDate}
-            onChange={(e) => {
-              setDueDate(e.target.value);
-              setDueDays("");
-            }}
-          />
-          <span className="form-hint">
-            Optional. Picking a date manually overrides the days calculation.
-          </span>
-        </div>
-
-        <div className="form-group">
-  <label>Action Plan</label>
-
-  {actionPlans.map((plan, index) => (
-    <div key={index} className="array-field-row">
-      <textarea
-        rows={3}
-        placeholder={`Action Plan ${index + 1}`}
-        value={plan}
-        onChange={(e) => updateActionPlan(index, e.target.value)}
-      />
-
-      {actionPlans.length > 1 && (
-        <button
-          type="button"
-          onClick={() => removeActionPlan(index)}
-        >
-          Remove
-        </button>
-      )}
-    </div>
-  ))}
-
-  <button type="button" onClick={addActionPlan}>
-    + Add Action Plan
-  </button>
-</div>
-<div className="form-group">
-  <label>Action Plan TDC</label>
-
-  <input
-    type="date"
-    value={actionPlanTdc}
-    onChange={(e) => setActionPlanTdc(e.target.value)}
-  />
-
-  <span className="form-hint">
-    Action Plan TDC is decided by DRM.
-  </span>
-</div>
-
-        <div className="form-group">
-          <label>DRM Remarks</label>
-          <textarea
-            rows={3}
-            placeholder="Enter remarks..."
-            value={remarks}
-            onChange={(e) => setRemarks(e.target.value)}
-          />
-        </div>
-        <div className="form-group">
-          <label>DRM Attachments</label>
-          {id && (
-            <AttachmentManager
-              attachments={drmAttachments}
-              canEdit
-              onAdd={async (pending) => applyTask(await addAttachments(id, pending))}
-              onRemove={async (a) => applyTask(await removeAttachment(id, a.id))}
+          <div className="form-group">
+            <label>Task Name</label>
+            <input
+              type="text"
+              placeholder="Track Repair"
+              value={taskName}
+              onChange={(e) => setTaskName(e.target.value)}
             />
-          )}
-          <span className="form-hint">Attachments are saved as soon as you add or remove them.</span>
-        </div>
+          </div>
 
-        <div className="form-group">
-          <label>Description</label>
-          <textarea
-            rows={5}
-            placeholder="Enter task description..."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
+          <div className="form-group">
+            <label>Date</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => handleDateChange(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Description</label>
+            <textarea
+              rows={4}
+              placeholder="Enter task description..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+        </section>
+
+        <section className="form-section">
+          <h2 className="form-section-title">Assignment and target</h2>
+
+          <div className="form-group">
+            <label>Designation</label>
+            <DesignationAutocomplete
+              value={designation}
+              onChange={setDesignation}
+              placeholder="Type to search designation"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Also Assigned To</label>
+            <MultiDesignationSelect
+              value={additionalDesignations}
+              onChange={setAdditionalDesignations}
+              exclude={designation}
+            />
+            <span className="form-hint">
+              Optional. Select one or more additional officers.
+            </span>
+          </div>
+
+          <div className="form-group">
+            <label>Status</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option>Pending</option>
+              <option>Completed</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Due In (Days)</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="e.g. 7"
+              value={dueDays}
+              onChange={(e) => handleDueDaysChange(e.target.value)}
+            />
+            <span className="form-hint">
+              Auto-calculates the due date from the task date.
+            </span>
+          </div>
+
+          <div className="form-group">
+            <label>Execution TDC (Manual)</label>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => {
+                setDueDate(e.target.value);
+                setDueDays("");
+              }}
+            />
+            <span className="form-hint">
+              Optional. Picking a date manually overrides the days calculation.
+            </span>
+          </div>
+        </section>
+
+        <section className="form-section">
+          <h2 className="form-section-title">Monday review</h2>
+          <ScheduleFields
+            value={schedule}
+            onChange={setSchedule}
+            nextDiscussionDate={nextDiscussionDate}
           />
-        </div>
+        </section>
 
-        <div className="form-group">
-  <label>BO&apos;s Remarks</label>
+        <section className="form-section">
+          <h2 className="form-section-title">Action plan and DRM remarks</h2>
 
-  {boRemarks.map((remark, index) => (
-    <div key={index} className="array-field-row">
-      <textarea
-        rows={3}
-        placeholder={`BO's Remark ${index + 1}`}
-        value={remark.remark}
-        onChange={(e) => updateBoRemark(index, e.target.value)}
-      />
+          <div className="form-group">
+            <label>Action Plan</label>
+            {actionPlans.map((plan, index) => (
+              <div key={index} className="array-field-row">
+                <textarea
+                  rows={3}
+                  placeholder={`Action Plan ${index + 1}`}
+                  value={plan}
+                  onChange={(e) => updateActionPlan(index, e.target.value)}
+                />
+                {actionPlans.length > 1 && (
+                  <button type="button" onClick={() => removeActionPlan(index)}>
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+            <WordCount text={actionPlanText} />
+            {!actionPlanChanged && overWordLimit(actionPlanText) && (
+              <span className="form-hint">Saved before the 60-word limit; it only needs shortening if you edit it.</span>
+            )}
+            <button type="button" onClick={addActionPlan}>
+              + Add Action Plan
+            </button>
+          </div>
 
-      <div className="bo-attachment-field">
-        <label>BO&apos;s Attachments</label>
-        {remark.id && id ? (
-          <AttachmentManager
-            attachments={remark.attachments}
-            canEdit
-            onAdd={async (pending) => applyTask(await addAttachments(id, pending, remark.id))}
-            onRemove={async (a) => applyTask(await removeAttachment(id, a.id))}
-          />
-        ) : (
-          <>
-            <PendingAttachmentsField value={remark.pending} onChange={(p) => setBoPending(index, p)} />
-            <span className="form-hint">Saved with this BO remark when you save the task.</span>
-          </>
-        )}
-      </div>
+          <div className="form-group">
+            <label>Action Plan TDC</label>
+            <input
+              type="date"
+              value={actionPlanTdc}
+              onChange={(e) => setActionPlanTdc(e.target.value)}
+            />
+            <span className="form-hint">
+              Action Plan TDC is decided by DRM.
+            </span>
+          </div>
 
-      {boRemarks.length > 1 && (
-        <button
-          type="button"
-          onClick={() => removeBoRemark(index)}
-        >
-          Remove
-        </button>
-      )}
-    </div>
-  ))}
+          <div className="form-group">
+            <label>DRM Remarks</label>
+            <textarea
+              rows={3}
+              placeholder="Enter remarks..."
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+            />
+          </div>
 
-  <button type="button" onClick={addBoRemark}>
-    + Add BO&apos;s Remark
-  </button>
-</div>
+          <div className="form-group">
+            <label>DRM Attachments</label>
+            {id && (
+              <AttachmentManager
+                attachments={drmAttachments}
+                canEdit
+                onAdd={async (pending) => applyTask(await addAttachments(id, pending))}
+                onRemove={async (a) => applyTask(await removeAttachment(id, a.id))}
+              />
+            )}
+            <span className="form-hint">Attachments are saved as soon as you add or remove them.</span>
+          </div>
+        </section>
+
+        <section className="form-section">
+          <h2 className="form-section-title">BO&apos;s remarks</h2>
+
+          <div className="form-group">
+            {boRemarks.map((remark, index) => (
+              <div key={index} className="bo-remark-block">
+                <div className="array-field-row">
+                  <textarea
+                    rows={3}
+                    placeholder={`BO's Remark ${index + 1}`}
+                    value={remark.remark}
+                    onChange={(e) => updateBoRemark(index, e.target.value)}
+                  />
+                  {boRemarks.length > 1 && (
+                    <button type="button" onClick={() => removeBoRemark(index)}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <WordCount text={remark.remark} />
+
+                <div className="bo-attachment-field">
+                  <label>BO&apos;s Attachments</label>
+                  {remark.id && id ? (
+                    <AttachmentManager
+                      attachments={remark.attachments}
+                      canEdit
+                      onAdd={async (pending) => applyTask(await addAttachments(id, pending, remark.id))}
+                      onRemove={async (a) => applyTask(await removeAttachment(id, a.id))}
+                    />
+                  ) : (
+                    <>
+                      <PendingAttachmentsField value={remark.pending} onChange={(p) => setBoPending(index, p)} />
+                      <span className="form-hint">Saved with this BO remark when you save the task.</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            <button type="button" onClick={addBoRemark}>
+              + Add BO&apos;s Remark
+            </button>
+          </div>
+        </section>
 
         <div className="button-group">
 
           <button
             type="submit"
             className="save-btn"
-            disabled={saving}
+            disabled={saving || wordLimitProblem() !== null}
           >
             {saving ? "Saving..." : "Update Task"}
           </button>
