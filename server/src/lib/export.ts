@@ -131,6 +131,9 @@ function statusLabel(task: Task): string {
 
   if (task.status === "COMPLETED") return "Completed";
 
+  // Running work is never called overdue, whatever its execution date.
+  if (task.status === "RUNNING") return "Running";
+
   const now = new Date();
 
   const due = Date.UTC(
@@ -409,6 +412,7 @@ const LINK_COLOR = "#2563EB";
 const STATUS_STYLES: Record<string, { bg: string; fg: string }> = {
   Completed: { bg: "#E2F3E7", fg: "#1E7A3C" },
   Pending: { bg: "#FFF3D6", fg: "#9A6B00" },
+  Running: { bg: "#E0ECFB", fg: "#1D4F91" },
   Overdue: { bg: "#FBE3E3", fg: "#C1241E" },
 };
 

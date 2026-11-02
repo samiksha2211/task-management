@@ -11,6 +11,7 @@ function taskStatusFromDue(
   dueDate: string
 ): ApiTask["status"] {
   if (status === "Completed") return "Completed";
+  if (status === "Running") return "Running";
   const due = new Date(`${dueDate}T00:00:00`).getTime();
   return due < startOfTodayLocal() ? "Overdue" : "Pending";
 }

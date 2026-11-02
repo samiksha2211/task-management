@@ -10,6 +10,7 @@ import {
   planCycleChange,
   planDiscussed,
   planReschedule,
+  nextMonthMondays,
   SchedulingError,
   type ExistingAgendaItem,
   type SchedulableTask,
@@ -27,6 +28,7 @@ function task(overrides: Partial<SchedulableTask> = {}): SchedulableTask {
     frequency: "WEEKLY",
     monthlyMondayOrdinal: null,
     fortnightAnchor: null,
+    allocatedDate: null,
     lastDiscussedAt: null,
     nextDiscussionDate: null,
     originalDiscussionDate: null,
@@ -47,6 +49,7 @@ function apply(t: SchedulableTask, patch: SchedulePatch): SchedulableTask {
     ...(patch.discussionFrequency !== undefined && { frequency: patch.discussionFrequency }),
     ...(patch.monthlyMondayOrdinal !== undefined && { monthlyMondayOrdinal: patch.monthlyMondayOrdinal }),
     ...(patch.fortnightAnchor !== undefined && { fortnightAnchor: patch.fortnightAnchor }),
+    ...(patch.allocatedMonday !== undefined && { allocatedDate: patch.allocatedMonday }),
   };
 }
 
@@ -284,5 +287,52 @@ describe("new tasks", () => {
   test("created on a Monday: on that Monday's agenda", () => {
     const created = task({ frequency: "WEEKLY", createdOn: "2026-11-02" });
     assert.equal(isDueOn(created, "2026-11-02"), true);
+  });
+});
+
+describe("one-time review frequencies", () => {
+  const today = "2026-11-04"; // a Wednesday
+  const upcoming = "2026-11-09";
+
+  test("Next Monday: on the coming Monday only", () => {
+    const t = apply(task({ frequency: null }), planCycleChange(task(), "NEXT_MONDAY", {}, today));
+    assert.equal(t.frequency, "NEXT_MONDAY");
+    assert.equal(t.allocatedDate, upcoming);
+    assert.deepEqual(dueMondays(t, today, "2027-02-01"), [upcoming]);
+    assert.equal(allocatedMonday(t, today), "9 Nov 2026");
+  });
+
+  test("Next Month: one of next month's Mondays, chosen by the DRM", () => {
+    assert.deepEqual(nextMonthMondays(today), ["2026-12-07", "2026-12-14", "2026-12-21", "2026-12-28"]);
+    const t = apply(task(), planCycleChange(task(), "NEXT_MONTH", { allocatedMonday: "2026-12-21" }, today));
+    assert.deepEqual(dueMondays(t, today, "2027-02-01"), ["2026-12-21"]);
+    const first = apply(task(), planCycleChange(task(), "NEXT_MONTH", {}, today));
+    assert.equal(first.allocatedDate, "2026-12-07", "defaults to the 1st Monday of next month");
+    assert.throws(() => planCycleChange(task(), "NEXT_MONTH", { allocatedMonday: upcoming }, today), SchedulingError);
+  });
+
+  test("Flexible Date: any Monday from the coming one on", () => {
+    const t = apply(task(), planCycleChange(task(), "FLEXIBLE", { allocatedMonday: "2027-01-18" }, today));
+    assert.deepEqual(dueMondays(t, today, "2027-03-01"), ["2027-01-18"]);
+    assert.throws(() => planCycleChange(task(), "FLEXIBLE", { allocatedMonday: "2026-11-02" }, today), SchedulingError);
+    assert.throws(() => planCycleChange(task(), "FLEXIBLE", { allocatedMonday: "2026-11-10" }, today), SchedulingError);
+  });
+
+  test("rescheduling a one-time task changes its allocated Monday", () => {
+    const t = apply(task(), planCycleChange(task(), "NEXT_MONDAY", {}, today));
+    const moved = apply(t, planReschedule(t, "2026-11-23", "", today));
+    assert.equal(moved.allocatedDate, "2026-11-23");
+    assert.equal(moved.frequency, "NEXT_MONDAY");
+    assert.deepEqual(dueMondays(moved, today, "2027-01-01"), ["2026-11-23"]);
+    assert.throws(() => planReschedule(moved, "2026-11-23", "", today), SchedulingError);
+  });
+
+  test("switching back to W clears the one-time date; completed tasks are never due", () => {
+    const t = apply(task(), planCycleChange(task(), "FLEXIBLE", { allocatedMonday: "2026-11-23" }, today));
+    const w = apply(t, planCycleChange(t, "WEEKLY", {}, today));
+    assert.equal(w.allocatedDate, null);
+    assert.equal(dueMondays(w, today, "2026-11-30").length, 4);
+    assert.equal(isDueOn({ ...t, status: "COMPLETED" }, "2026-11-23"), false);
+    assert.equal(isDueOn({ ...t, status: "RUNNING" }, "2026-11-23"), true, "Running tasks stay on the agenda");
   });
 });

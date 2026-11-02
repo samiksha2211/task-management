@@ -10,7 +10,7 @@ export async function stats(_req: AuthRequest, res: Response): Promise<void> {
   const today = todayUTCStart();
   const tomorrow = tomorrowUTCStart();
 
-  const [total, completed, pending, overdue, dueToday, recentTasks] = await Promise.all([
+  const [total, completed, pending, overdue, running, dueToday, recentTasks] = await Promise.all([
     prisma.task.count({ where: activeWhere }),
     prisma.task.count({ where: { ...activeWhere, status: "COMPLETED" } }),
     prisma.task.count({
@@ -19,6 +19,7 @@ export async function stats(_req: AuthRequest, res: Response): Promise<void> {
     prisma.task.count({
       where: { ...activeWhere, status: "PENDING", dueDate: { lt: today } },
     }),
+    prisma.task.count({ where: { ...activeWhere, status: "RUNNING" } }),
     prisma.task.findMany({
       where: {
         ...activeWhere,
@@ -41,6 +42,7 @@ export async function stats(_req: AuthRequest, res: Response): Promise<void> {
     completed,
     pending,
     overdue,
+    running,
     dueToday: dueToday.map(serializeTask),
     recentTasks: recentTasks.map(serializeTask),
   });
@@ -49,7 +51,7 @@ export async function stats(_req: AuthRequest, res: Response): Promise<void> {
 export async function taskStatus(_req: AuthRequest, res: Response): Promise<void> {
   const today = todayUTCStart();
 
-  const [completed, pending, overdue] = await Promise.all([
+  const [completed, pending, overdue, running] = await Promise.all([
     prisma.task.count({ where: { ...activeWhere, status: "COMPLETED" } }),
     prisma.task.count({
       where: { ...activeWhere, status: "PENDING", dueDate: { gte: today } },
@@ -57,11 +59,12 @@ export async function taskStatus(_req: AuthRequest, res: Response): Promise<void
     prisma.task.count({
       where: { ...activeWhere, status: "PENDING", dueDate: { lt: today } },
     }),
+    prisma.task.count({ where: { ...activeWhere, status: "RUNNING" } }),
   ]);
 
   res.json({
-    labels: ["Completed", "Pending", "Overdue"],
-    data: [completed, pending, overdue],
+    labels: ["Completed", "Pending", "Overdue", "Running"],
+    data: [completed, pending, overdue, running],
   });
 }
 

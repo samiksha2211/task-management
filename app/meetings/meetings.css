@@ -132,7 +132,7 @@ html[data-theme="dark"] .mtg-modal {
 /* Cycle cards */
 .mtg-cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -526,4 +526,89 @@ html[data-theme="dark"] .meeting-page .mtg-cycle-card {
 
 .mtg-table tbody tr.is-done td {
   opacity: 0.75;
+}
+
+/* Monday Discussion Agenda */
+.mtg-agenda-table {
+  min-width: 1400px;
+  font-size: 13px;
+}
+
+.mtg-agenda-table .mtg-agenda-task {
+  min-width: 200px;
+}
+
+.mtg-table tbody tr.is-important td {
+  background: #fff8e6;
+}
+
+.mtg-table tbody tr.is-important td:first-child {
+  box-shadow: inset 4px 0 0 #d97706;
+}
+
+.mtg-important-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #fdecc8;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 800;
+  vertical-align: 1px;
+}
+
+.meeting-page .mtg-important-btn.is-on {
+  color: #92400e;
+  border-color: #f2c66d;
+  background: #fff4dc;
+}
+
+.mtg-files {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+.mtg-files a {
+  color: #2563eb;
+  word-break: break-word;
+}
+
+.meeting-page .mtg-link-btn {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.mtg-date-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mtg-muted);
+}
+
+.review-code.code-ONE {
+  background: #ede9fe;
+  color: #5b21b6;
+  white-space: nowrap;
+}
+
+html[data-theme="dark"] .mtg-table tbody tr.is-important td {
+  background: rgba(217, 119, 6, 0.14);
+}
+
+@media (max-width: 1200px) {
+  .mtg-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }

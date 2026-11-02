@@ -15,6 +15,9 @@ const REVIEW_TITLE: Record<string, string> = {
   W: "Weekly – every Monday",
   FT: "Fortnightly – once every two weeks",
   M: "Monthly – once a month",
+  "Next Monday": "One-time – the coming Monday",
+  "Next Month": "One-time – a Monday of next month",
+  Flexible: "One-time – the chosen Monday",
 };
 import { AttachmentList } from "@/components/attachments/Attachments";
 
@@ -341,6 +344,10 @@ export default function TaskTable({
       } else if (status === "pending") {
 
         if (task.status !== "Pending") return false;
+
+      } else if (status === "running") {
+
+        if (task.status !== "Running") return false;
 
       } else if (status === "overdue") {
 
@@ -915,6 +922,8 @@ const handleDeleteBoUpdate = async (
 
           <option value="pending">Pending</option>
 
+          <option value="running">Running</option>
+
           <option value="overdue">Overdue</option>
 
           <option value="completed">Completed</option>
@@ -1082,7 +1091,7 @@ const handleDeleteBoUpdate = async (
                   {task.reviewCode ? (
                     <>
                       <span
-                        className={`review-code code-${task.reviewCode}`}
+                        className={`review-code code-${["W", "FT", "M"].includes(task.reviewCode) ? task.reviewCode : "ONE"}`}
                         title={REVIEW_TITLE[task.reviewCode]}
                       >
                         {task.reviewCode}

@@ -10,6 +10,12 @@
 //   M  (MONTHLY)     the allocated Monday of every month (1st-5th). In a month
 //                    with no 5th Monday, a 5th-Monday task is on the last one.
 //
+// One-time frequencies: the task is discussed once, on its allocated Monday
+// (Task.allocatedMonday), which the DRM can move.
+//   Next Monday    the coming Monday.
+//   Next Month     a Monday of next month, picked by the DRM.
+//   Flexible Date  any Monday from the coming one on.
+//
 // A task is on a Monday's agenda when that Monday is one of its review dates.
 // Nothing carries over and nothing has to be allocated by hand. One date can
 // be moved with Reschedule: the task is then on the new Monday instead of the
@@ -23,13 +29,14 @@
 // agenda row per task per meeting). Tasks that are completed, deleted, or have
 // no review frequency are never on an agenda.
 
-import { CYCLE_LABEL, type Cycle } from "./config";
+import { CYCLE_LABEL, isOneTime, type Cycle } from "./config";
 import {
   addDays,
   diffDays,
   fromISODate,
   isMonday,
   mondayOnOrAfter,
+  nextMonthOf,
   nthMondayOfMonth,
   type ISODate,
 } from "./dates";
@@ -45,16 +52,19 @@ export type AgendaSectionValue =
 export type AgendaInclusionValue = "DUE" | "BROUGHT_FORWARD" | "MANUAL";
 export type AgendaOutcomeValue = "PENDING" | "DISCUSSED" | "NOT_DISCUSSED" | "DEFERRED";
 
-export const REVIEW_CODE: Record<Cycle, "W" | "FT" | "M"> = {
+export const REVIEW_CODE: Record<Cycle, string> = {
   WEEKLY: "W",
   FORTNIGHTLY: "FT",
   MONTHLY: "M",
+  NEXT_MONDAY: "Next Monday",
+  NEXT_MONTH: "Next Month",
+  FLEXIBLE: "Flexible",
 };
 
 export interface SchedulableTask {
   id: string;
   title: string;
-  status: "PENDING" | "COMPLETED" | "OVERDUE";
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "OVERDUE";
   deleted: boolean;
   /** Day the task was created (meeting time zone). It is not on agendas before then. */
   createdOn?: ISODate | null;
@@ -63,6 +73,8 @@ export interface SchedulableTask {
   monthlyMondayOrdinal: number | null;
   /** FORTNIGHTLY: a Monday the alternate-week cycle runs from. */
   fortnightAnchor: ISODate | null;
+  /** One-time frequencies: the Monday the task is allocated to. */
+  allocatedDate: ISODate | null;
   lastDiscussedAt: ISODate | null;
   /** With a reschedule: the Monday the task was moved to. */
   nextDiscussionDate: ISODate | null;
@@ -81,6 +93,7 @@ export interface SchedulePatch {
   discussionFrequency?: Cycle | null;
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: ISODate | null;
+  allocatedMonday?: ISODate | null;
 }
 
 export class SchedulingError extends Error {
@@ -123,8 +136,12 @@ function clampOrdinal(n: number | null | undefined): number {
 // The calendar
 
 /** The regular review rule, ignoring any reschedule. */
-export function occursOn(task: Pick<SchedulableTask, "frequency" | "monthlyMondayOrdinal" | "fortnightAnchor">, date: ISODate): boolean {
+export function occursOn(
+  task: Pick<SchedulableTask, "frequency" | "monthlyMondayOrdinal" | "fortnightAnchor" | "allocatedDate">,
+  date: ISODate
+): boolean {
   if (!task.frequency || !isMonday(date)) return false;
+  if (isOneTime(task.frequency)) return task.allocatedDate === date;
   switch (task.frequency) {
     case "WEEKLY":
       return true;
@@ -180,8 +197,10 @@ export function nextRegularDate(task: SchedulableTask, from: ISODate): ISODate |
  *   W  -> "Every Monday"
  *   FT -> where its next review date falls, e.g. "2nd Monday · alternate weeks"
  *   M  -> its fixed Monday, e.g. "3rd Monday"
+ *   one-time -> its date, e.g. "9 Nov 2026"
  */
 export function allocatedMonday(task: SchedulableTask, from: ISODate): string {
+  if (isOneTime(task.frequency)) return task.allocatedDate ? fmt(task.allocatedDate) : "";
   switch (task.frequency) {
     case "WEEKLY":
       return "Every Monday";
@@ -202,6 +221,33 @@ export function allocatedMonday(task: SchedulableTask, from: ISODate): string {
 export interface CycleOptions {
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: ISODate | null;
+  /** NEXT_MONTH / FLEXIBLE: the Monday chosen by the DRM. */
+  allocatedMonday?: ISODate | null;
+}
+
+/** The Mondays of the month after `today` (choices for "Next Month"). */
+export function nextMonthMondays(today: ISODate): ISODate[] {
+  const { year, month } = nextMonthOf(today);
+  const out: ISODate[] = [];
+  for (let d = nthMondayOfMonth(year, month, 1); fromISODate(d).getUTCMonth() + 1 === month; d = addDays(d, 7)) out.push(d);
+  return out;
+}
+
+/** The Monday a one-time frequency allocates the task to. */
+function oneTimeDate(task: SchedulableTask, cycle: Cycle, options: CycleOptions, today: ISODate): ISODate {
+  const upcoming = mondayOnOrAfter(today);
+  const current = isOneTime(task.frequency) && task.allocatedDate && task.allocatedDate >= upcoming ? task.allocatedDate : null;
+  if (cycle === "NEXT_MONDAY") return upcoming;
+  if (cycle === "NEXT_MONTH") {
+    const choices = nextMonthMondays(today);
+    const picked = options.allocatedMonday ?? (current && choices.includes(current) ? current : choices[0]);
+    if (!choices.includes(picked)) throw new SchedulingError("For Next Month, please pick one of next month's Mondays.");
+    return picked;
+  }
+  const picked = options.allocatedMonday ?? current ?? upcoming;
+  if (!isMonday(picked)) throw new SchedulingError("Meetings are on Mondays; please pick a Monday.");
+  if (picked < upcoming) throw new SchedulingError("Please pick the coming Monday or a later one.");
+  return picked;
 }
 
 /**
@@ -225,11 +271,30 @@ export function planCycleChange(
       discussionFrequency: null,
       monthlyMondayOrdinal: null,
       fortnightAnchor: null,
+      allocatedMonday: null,
       scheduleReason: "No review frequency",
     };
   }
+  if (isOneTime(cycle)) {
+    const date = oneTimeDate(task, cycle, options, today);
+    return {
+      ...base,
+      discussionFrequency: cycle,
+      monthlyMondayOrdinal: null,
+      fortnightAnchor: null,
+      allocatedMonday: date,
+      scheduleReason: `${CYCLE_LABEL[cycle]}: ${fmt(date)}`,
+    };
+  }
   if (cycle === "WEEKLY") {
-    return { ...base, discussionFrequency: cycle, monthlyMondayOrdinal: null, fortnightAnchor: null, scheduleReason: "W: every Monday" };
+    return {
+      ...base,
+      discussionFrequency: cycle,
+      monthlyMondayOrdinal: null,
+      fortnightAnchor: null,
+      allocatedMonday: null,
+      scheduleReason: "W: every Monday",
+    };
   }
   if (cycle === "MONTHLY") {
     const ordinal = clampOrdinal(options.monthlyMondayOrdinal ?? task.monthlyMondayOrdinal);
@@ -238,6 +303,7 @@ export function planCycleChange(
       discussionFrequency: cycle,
       monthlyMondayOrdinal: ordinal,
       fortnightAnchor: null,
+      allocatedMonday: null,
       scheduleReason: `M: ${ordinalLabel(ordinal)} of every month`,
     };
   }
@@ -248,6 +314,7 @@ export function planCycleChange(
     discussionFrequency: cycle,
     monthlyMondayOrdinal: null,
     fortnightAnchor: anchor,
+    allocatedMonday: null,
     scheduleReason: `FT: alternate Mondays from ${fmt(anchor)}`,
   };
 }
@@ -267,6 +334,21 @@ export function planReschedule(
   if (isTaskClosed(task)) throw new SchedulingError("A completed task cannot be rescheduled.");
   if (!isMonday(toDate)) throw new SchedulingError("Meetings are on Mondays; please pick a Monday.");
   if (toDate < mondayOnOrAfter(today)) throw new SchedulingError("Please pick the coming Monday or a later one.");
+
+  // A one-time task simply gets a new allocated Monday.
+  if (isOneTime(task.frequency)) {
+    if (toDate === task.allocatedDate) {
+      throw new SchedulingError(`This task is already allocated to ${fmt(toDate)}.`, "UNCHANGED", 409);
+    }
+    const note = reason.trim();
+    return {
+      nextDiscussionDate: null,
+      scheduleState: "SCHEDULED",
+      originalDiscussionDate: null,
+      allocatedMonday: toDate,
+      scheduleReason: `Allocated to ${fmt(toDate)}${task.allocatedDate ? ` (was ${fmt(task.allocatedDate)})` : ""}${note ? `: ${note}` : ""}`,
+    };
+  }
 
   // The regular date being replaced: the one already replaced, or the next one.
   const original = hasReschedule(task)
@@ -326,12 +408,13 @@ export interface AgendaResult {
 }
 
 export function cycleSection(cycle: Cycle | null): AgendaSectionValue {
-  return cycle ?? "NEW";
+  return !cycle || isOneTime(cycle) ? "NEW" : cycle;
 }
 
 function inclusionReason(task: SchedulableTask, meetingDate: ISODate): string {
   if (hasReschedule(task) && task.nextDiscussionDate === meetingDate && task.scheduleReason) return task.scheduleReason;
   if (!task.frequency) return "Scheduled";
+  if (isOneTime(task.frequency)) return `${CYCLE_LABEL[task.frequency]}: ${allocatedMonday(task, meetingDate)}`;
   return `${REVIEW_CODE[task.frequency]}: ${allocatedMonday(task, meetingDate)}`;
 }
 

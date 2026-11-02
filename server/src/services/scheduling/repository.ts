@@ -26,6 +26,7 @@ export function toSchedulable(task: Task): SchedulableTask {
     frequency: task.discussionFrequency,
     monthlyMondayOrdinal: task.monthlyMondayOrdinal,
     fortnightAnchor: toISODateOrNull(task.fortnightAnchor),
+    allocatedDate: toISODateOrNull(task.allocatedMonday),
     lastDiscussedAt: toISODateOrNull(task.lastDiscussedAt),
     nextDiscussionDate: toISODateOrNull(task.nextDiscussionDate),
     originalDiscussionDate: toISODateOrNull(task.originalDiscussionDate),
@@ -45,6 +46,7 @@ export function patchToData(patch: SchedulePatch): Prisma.TaskUncheckedUpdateInp
   if (patch.discussionFrequency !== undefined) data.discussionFrequency = patch.discussionFrequency;
   if (patch.monthlyMondayOrdinal !== undefined) data.monthlyMondayOrdinal = patch.monthlyMondayOrdinal;
   if (patch.fortnightAnchor !== undefined) data.fortnightAnchor = fromISODateOrNull(patch.fortnightAnchor);
+  if (patch.allocatedMonday !== undefined) data.allocatedMonday = fromISODateOrNull(patch.allocatedMonday);
   return data;
 }
 

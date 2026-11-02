@@ -1,7 +1,45 @@
 import { apiFetch, getToken } from "./api";
 
+/** The repeating review frequencies (W / FT / M). */
 export type Cycle = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY";
-export type TaskStatusLabel = "Pending" | "Overdue" | "Completed";
+/** One-time review: discussed once, on the allocated Monday. */
+export type OneTimeCycle = "NEXT_MONDAY" | "NEXT_MONTH" | "FLEXIBLE";
+export type Frequency = Cycle | OneTimeCycle;
+export type TaskStatusLabel = "Pending" | "Running" | "Overdue" | "Completed";
+
+export const ONE_TIME_CYCLES: OneTimeCycle[] = ["NEXT_MONDAY", "NEXT_MONTH", "FLEXIBLE"];
+
+export const ONE_TIME_LABEL: Record<OneTimeCycle, string> = {
+  NEXT_MONDAY: "Next Monday",
+  NEXT_MONTH: "Next Month",
+  FLEXIBLE: "Flexible Date",
+};
+
+export const ONE_TIME_HINT: Record<OneTimeCycle, string> = {
+  NEXT_MONDAY: "Discussed once, on the coming Monday.",
+  NEXT_MONTH: "Discussed once, on the Monday of next month you choose.",
+  FLEXIBLE: "Discussed once, on any Monday you choose.",
+};
+
+export function isOneTime(f: Frequency | "" | null | undefined): f is OneTimeCycle {
+  return f === "NEXT_MONDAY" || f === "NEXT_MONTH" || f === "FLEXIBLE";
+}
+
+/** "W (Weekly)", "Next Month", ... */
+export function frequencyLabel(f: Frequency | null | undefined): string {
+  if (!f) return "—";
+  return isOneTime(f) ? ONE_TIME_LABEL[f] : `${REVIEW_CODE[f]} (${CYCLE_LABEL[f]})`;
+}
+
+/** The Mondays of the month after `today` (choices for "Next Month"). */
+export function nextMonthMondaysISO(today: string): string[] {
+  const d = new Date(`${today}T00:00:00Z`);
+  const first = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
+  const month = first.slice(0, 7);
+  const out: string[] = [];
+  for (let m = mondayOnOrAfterISO(first); m.startsWith(month); m = addDaysISO(m, 7)) out.push(m);
+  return out;
+}
 
 export const CYCLES: Cycle[] = ["WEEKLY", "FORTNIGHTLY", "MONTHLY"];
 
@@ -56,10 +94,16 @@ export interface RegisterTask {
   officer: string;
   status: TaskStatusLabel;
   dueDate: string;
-  cycle: Cycle | null;
-  reviewCode: "W" | "FT" | "M" | null;
+  cycle: Frequency | null;
+  /** W / FT / M, or the one-time frequency's name. */
+  reviewCode: string | null;
   monthlyMondayOrdinal: number | null;
   fortnightAnchor: string | null;
+  oneTime: boolean;
+  /** One-time frequencies: the allocated Monday (YYYY-MM-DD). */
+  allocatedMondayDate: string | null;
+  /** Marked important for immediate discussion. */
+  important: boolean;
   /** "Every Monday", "3rd Monday", "2nd Monday · alternate weeks" */
   allocatedMonday: string | null;
   /** Next Monday the task is scheduled for discussion. */
@@ -73,11 +117,30 @@ export interface RegisterTask {
 export interface RegisterResponse {
   today: string;
   upcomingMonday: string;
-  counts: Record<Cycle | "UNASSIGNED", number>;
+  nextMonthMondays: string[];
+  counts: Record<Cycle | "ONE_TIME" | "UNASSIGNED", number>;
   tasks: RegisterTask[];
 }
 
+export interface AgendaFile {
+  id: string;
+  kind: "FILE" | "LINK";
+  name: string;
+  url: string;
+}
+
 export interface AgendaTask extends RegisterTask {
+  /** S.N.: position in the agenda (newest task date first). */
+  serial: number;
+  /** Task date (YYYY-MM-DD). */
+  date: string;
+  /** "W (Weekly)", "Next Month", ... */
+  frequency: string;
+  otherOfficers: string[];
+  actionPlan: string | null;
+  drmRemark: string | null;
+  drmFiles: AgendaFile[];
+  latestBo: { remark: string | null; by: string; at: string; files: AgendaFile[] } | null;
   /** The meeting date the task is on. */
   scheduledDate: string;
   reason: string;
@@ -105,8 +168,8 @@ export interface HistoryResponse {
     by: string | null;
     fromDate: string | null;
     toDate: string | null;
-    fromCycle: Cycle | null;
-    toCycle: Cycle | null;
+    fromCycle: Frequency | null;
+    toCycle: Frequency | null;
     reason: string | null;
   }[];
 }
@@ -152,15 +215,17 @@ export const getAgenda = (date?: string) =>
 export interface CycleOptions {
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: string | null;
+  /** Next Month / Flexible Date: the chosen Monday. */
+  allocatedMonday?: string | null;
 }
 
-export const setCycle = (taskId: string, cycle: Cycle | null, options: CycleOptions = {}) =>
+export const setCycle = (taskId: string, cycle: Frequency | null, options: CycleOptions = {}) =>
   apiFetch(`/api/schedule/tasks/${taskId}/cycle`, {
     method: "PATCH",
     body: JSON.stringify({ cycle, ...options }),
   });
 
-export const setCycleBulk = (taskIds: string[], cycle: Cycle | null, options: CycleOptions = {}) =>
+export const setCycleBulk = (taskIds: string[], cycle: Frequency | null, options: CycleOptions = {}) =>
   apiFetch<{ updated: number }>("/api/schedule/cycle", {
     method: "POST",
     body: JSON.stringify({ taskIds, cycle, ...options }),
@@ -170,6 +235,12 @@ export const rescheduleTask = (taskId: string, toDate: string, reason?: string, 
   apiFetch(`/api/schedule/tasks/${taskId}/reschedule`, {
     method: "POST",
     body: JSON.stringify({ toDate, reason, fromDate }),
+  });
+
+export const setImportant = (taskId: string, important: boolean) =>
+  apiFetch(`/api/schedule/tasks/${taskId}/important`, {
+    method: "POST",
+    body: JSON.stringify({ important }),
   });
 
 export const markDiscussed = (date: string, taskId: string, discussed: boolean) =>
@@ -212,11 +283,12 @@ async function download(url: string, fallbackName: string): Promise<void> {
   URL.revokeObjectURL(href);
 }
 
-export type StatusFilter = "all" | "pending" | "overdue" | "completed" | "pending_overdue";
+export type StatusFilter = "all" | "pending" | "running" | "overdue" | "completed" | "pending_overdue";
 
 export const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "All Statuses" },
   { value: "pending", label: "Pending" },
+  { value: "running", label: "Running" },
   { value: "overdue", label: "Overdue" },
   { value: "completed", label: "Completed" },
   { value: "pending_overdue", label: "Pending/Overdue" },
@@ -233,4 +305,4 @@ export const downloadRegisterPdf = (cycle: Cycle | "ALL", status: StatusFilter =
   download(`/api/meetings/register/pdf?cycle=${cycle}&status=${status}`, `monday_meeting_${cycle.toLowerCase()}.pdf`);
 
 export const downloadAgenda = (date: string, format: "pdf" | "xlsx") =>
-  download(`/api/meetings/${date}/export?format=${format}`, `monday_agenda_${date}.${format}`);
+  download(`/api/meetings/${date}/export?format=${format}`, `monday_discussion_agenda_${date}.${format}`);

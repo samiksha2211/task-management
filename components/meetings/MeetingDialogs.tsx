@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import {
-  CYCLE_LABEL,
   addDaysISO,
+  frequencyLabel,
   fmtDay,
   fmtMonday,
   getHistory,
@@ -64,11 +64,17 @@ export function RescheduleDialog({
 
   return (
     <Modal title="Reschedule discussion" subtitle={`#${task.taskNumber} · ${task.title}`} onClose={onCancel}>
-      <p className="mtg-muted" style={{ marginTop: 12 }}>
-        Move this review from {fmtDay(fromDate)} to another Monday. Only this one date changes: the task stays{" "}
-        {task.reviewCode ?? "without a review frequency"}
-        {task.cycle ? ` (${CYCLE_LABEL[task.cycle].toLowerCase()})` : ""} and its other Mondays are unchanged.
-      </p>
+      {task.oneTime ? (
+        <p className="mtg-muted" style={{ marginTop: 12 }}>
+          Change the Allocated Monday of this {frequencyLabel(task.cycle)} task from {fmtDay(fromDate)} to another Monday.
+          The Execution Date (TDC) does not change.
+        </p>
+      ) : (
+        <p className="mtg-muted" style={{ marginTop: 12 }}>
+          Move this review from {fmtDay(fromDate)} to another Monday. Only this one date changes: the task stays{" "}
+          {task.cycle ? frequencyLabel(task.cycle) : "without a review frequency"} and its other Mondays are unchanged.
+        </p>
+      )}
       <div className="mtg-field">
         <label htmlFor="mtg-reschedule-date">Move to</label>
         <select id="mtg-reschedule-date" value={toDate} onChange={(e) => setToDate(e.target.value)}>
@@ -105,6 +111,7 @@ const EVENT_LABEL: Record<string, string> = {
   FREQUENCY_CHANGED: "Cycle changed",
   RESCHEDULED: "Rescheduled",
   BROUGHT_FORWARD: "Brought forward",
+  REVIEW_UPDATED: "Important mark changed",
   DEFERRED: "Moved later",
   DISCUSSED: "Discussed",
   DISCUSSION_UNDONE: "Discussion undone",
@@ -148,7 +155,7 @@ export function HistoryDialog({ task, onClose }: { task: RegisterTask; onClose: 
                   </span>
                   {e.fromCycle !== e.toCycle && (
                     <div className="mtg-muted">
-                      {e.fromCycle ? CYCLE_LABEL[e.fromCycle] : "No cycle"} → {e.toCycle ? CYCLE_LABEL[e.toCycle] : "No cycle"}
+                      {e.fromCycle ? frequencyLabel(e.fromCycle) : "No cycle"} → {e.toCycle ? frequencyLabel(e.toCycle) : "No cycle"}
                     </div>
                   )}
                   {e.toDate && <div className="mtg-muted">Next discussion: {fmtDay(e.toDate)}</div>}

@@ -12,12 +12,13 @@ export type PendingTaskCreate = {
   // Their database IDs will be resolved when sync runs.
   additionalDesignations: string[];
 
-  status: "Pending" | "Completed";
+  status: "Pending" | "Running" | "Completed";
 
   // Monday meeting scheduling (optional: older queued items have none)
-  discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
+  discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "NEXT_MONDAY" | "NEXT_MONTH" | "FLEXIBLE" | null;
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: string | null;
+  allocatedMonday?: string | null;
 
   createdAt: string;
   syncState: "pending" | "syncing" | "failed";
@@ -184,6 +185,7 @@ export async function enqueueTaskCreate(
     discussionFrequency: input.discussionFrequency ?? null,
     monthlyMondayOrdinal: input.monthlyMondayOrdinal ?? null,
     fortnightAnchor: input.fortnightAnchor ?? null,
+    allocatedMonday: input.allocatedMonday ?? null,
 
     createdAt: new Date().toISOString(),
 

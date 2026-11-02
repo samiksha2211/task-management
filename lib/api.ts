@@ -25,17 +25,19 @@ export type ApiTask = {
   attachmentType: string | null;
   attachments?: ApiAttachment[];
 
-  status: "Pending" | "Completed" | "Overdue";
+  status: "Pending" | "Running" | "Completed" | "Overdue";
   priority?: string | null;
 
   // Monday meeting scheduling
-  discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
+  discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "NEXT_MONDAY" | "NEXT_MONTH" | "FLEXIBLE" | null;
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: string | null;
-  /** W / FT / M */
-  reviewCode?: "W" | "FT" | "M" | null;
-  /** e.g. "Every Monday", "3rd Monday", "2nd Monday · alternate weeks" */
+  /** W / FT / M, or the one-time frequency's name */
+  reviewCode?: string | null;
+  /** e.g. "Every Monday", "3rd Monday", "2nd Monday · alternate weeks", "9 Nov 2026" */
   allocatedMonday?: string | null;
+  /** One-time frequencies: the allocated Monday (YYYY-MM-DD) */
+  allocatedMondayDate?: string | null;
   lastDiscussedAt?: string | null;
   nextDiscussionDate?: string | null;
   scheduleState?: string;

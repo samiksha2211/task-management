@@ -10,7 +10,7 @@ import { validate } from "../lib/validate";
 import type { AuthRequest } from "../middleware/auth";
 import { prisma } from "../prisma";
 import { setTaskCycle } from "../services/scheduling/actions";
-import { CYCLE_LABEL, CYCLES, type Cycle } from "../services/scheduling/config";
+import { ALL_CYCLES, CYCLE_LABEL, isOneTime, type Cycle } from "../services/scheduling/config";
 import {
   fromISODate,
   isISODate,
@@ -22,10 +22,13 @@ import {
 } from "../services/scheduling/dates";
 import {
   allocatedMonday,
+  cycleSection,
   fmt,
   hasReschedule,
+  isDueOn,
   isTaskClosed,
   nextDueDate,
+  nextMonthMondays,
   planCycleChange,
   planDiscussed,
   planReschedule,
@@ -46,9 +49,10 @@ import {
 
 const isoDate = z.string().refine(isISODate, "must be a date (YYYY-MM-DD)");
 const mondayDate = isoDate.refine(isMonday, "must be a Monday");
-const cycleInput = z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY"]);
+const cycleInput = z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY", "NEXT_MONDAY", "NEXT_MONTH", "FLEXIBLE"]);
 const ordinalInput = z.number().int().min(1).max(5).nullable().optional();
 const anchorInput = mondayDate.nullable().optional();
+const allocatedInput = mondayDate.nullable().optional();
 
 function notFound(message: string): SchedulingError {
   return new SchedulingError(message, "NOT_FOUND", 404);
@@ -68,11 +72,13 @@ const registerInclude = {
   officerUpdates: { include: { officer: true }, orderBy: { createdAt: "desc" as const }, take: 1 },
 };
 
-type StatusLabel = "Pending" | "Overdue" | "Completed";
+type StatusLabel = "Pending" | "Running" | "Overdue" | "Completed";
 
 // Same rule as the task list: "Overdue" is a pending task past its due date.
+// A Running task is never called overdue.
 function statusLabel(task: Task): StatusLabel {
   if (task.status === "COMPLETED") return "Completed";
+  if (task.status === "RUNNING") return "Running";
   return isOverdue(task.dueDate) ? "Overdue" : "Pending";
 }
 
@@ -99,7 +105,10 @@ function scheduleView(task: Task, from: ISODate) {
     reviewCode: task.discussionFrequency ? REVIEW_CODE[task.discussionFrequency] : null,
     monthlyMondayOrdinal: task.monthlyMondayOrdinal,
     fortnightAnchor: toISODateOrNull(task.fortnightAnchor),
+    oneTime: isOneTime(task.discussionFrequency),
     allocatedMonday: task.discussionFrequency ? allocatedMonday(s, from) : null,
+    allocatedMondayDate: toISODateOrNull(task.allocatedMonday),
+    important: task.flaggedForReview,
     // A completed task has no upcoming discussion.
     nextDiscussionDate: closed ? null : nextDueDate(s, from),
     rescheduled: !closed && hasReschedule(s) && (task.nextDiscussionDate ? toISODate(task.nextDiscussionDate) >= from : false),
@@ -135,10 +144,12 @@ export async function getRegister(_req: AuthRequest, res: Response): Promise<voi
   res.json({
     today: today(),
     upcomingMonday: mondayOnOrAfter(today()),
+    nextMonthMondays: nextMonthMondays(today()),
     counts: {
       WEEKLY: views.filter((t) => t.cycle === "WEEKLY").length,
       FORTNIGHTLY: views.filter((t) => t.cycle === "FORTNIGHTLY").length,
       MONTHLY: views.filter((t) => t.cycle === "MONTHLY").length,
+      ONE_TIME: views.filter((t) => t.oneTime).length,
       UNASSIGNED: views.filter((t) => !t.cycle).length,
     },
     tasks: views,
@@ -164,20 +175,37 @@ const ALL_REGISTER_COLUMNS: PdfColumnKey[] = [
   "actionPlan", "executionTdc", "status", "drmRemark", "boRemark",
 ];
 
-// Monday agenda PDF: the meeting table. BO remarks and action plans (up to
-// 60 words each) get the widest columns.
+// Monday Discussion Agenda PDF: the same 12 columns as the website agenda.
+// "boRemark" holds only the latest BO remark and its files here.
 const AGENDA_COLUMNS: PdfColumnKey[] = [
-  "serial", "review", "task", "allocatedMonday", "scheduledDate", "status", "latestBoRemark", "actionPlan",
+  "serial", "date", "review", "allocatedMonday", "task", "coordinatorOfficer", "otherOfficers",
+  "actionPlan", "executionTdc", "status", "drmRemark", "boRemark",
 ];
 const AGENDA_WIDTHS: Partial<Record<PdfColumnKey, number>> = {
-  serial: 5, review: 7, task: 17, allocatedMonday: 9, scheduledDate: 8, status: 7, latestBoRemark: 23.5, actionPlan: 23.5,
+  serial: 4.5, date: 6.5, review: 8, allocatedMonday: 7, task: 12.5, coordinatorOfficer: 7.5,
+  otherOfficers: 7.5, actionPlan: 11.5, executionTdc: 7.5, status: 6.5, drmRemark: 10.5, boRemark: 12,
+};
+const AGENDA_LABELS: Partial<Record<PdfColumnKey, string>> = {
+  serial: "S.N.",
+  date: "Date",
+  review: "Review Frequency",
+  allocatedMonday: "Allocated Monday",
+  task: "Task",
+  coordinatorOfficer: "Coordinator Officer",
+  otherOfficers: "Other Officers",
+  actionPlan: "Action Plan",
+  executionTdc: "Execution Date (TDC)",
+  status: "Status",
+  drmRemark: "DRM Remark / File",
+  boRemark: "Latest BO Remark / File",
 };
 
-type StatusChoice = "all" | "pending" | "overdue" | "completed" | "pending_overdue";
+type StatusChoice = "all" | "pending" | "running" | "overdue" | "completed" | "pending_overdue";
 
 const STATUS_CHOICE_LABEL: Record<StatusChoice, string> = {
   all: "All statuses",
   pending: "Pending",
+  running: "Running",
   overdue: "Overdue",
   completed: "Completed",
   pending_overdue: "Pending / Overdue",
@@ -229,13 +257,13 @@ function pdfRows(tasks: ExportTask[], from: ISODate, scheduledOn?: ISODate, with
   });
 }
 
-/** Rows in W, FT, M sections, numbered from 1 in each section. */
+/** Rows in W, FT, M (and one-time) sections, numbered from 1 in each section. */
 function groupedRows(rows: TaskExportRow[], tasks: ExportTask[]): TaskExportRow[] {
   const out: TaskExportRow[] = [];
-  for (const cycle of [...CYCLES, null]) {
+  for (const cycle of [...ALL_CYCLES, null]) {
     const inCycle = rows.filter((_, i) => tasks[i].discussionFrequency === cycle);
     if (inCycle.length === 0) continue;
-    const label = cycle ? `${REVIEW_CODE[cycle]} — ${CYCLE_LABEL[cycle]}` : "No review frequency";
+    const label = cycle ? (isOneTime(cycle) ? `One-time — ${CYCLE_LABEL[cycle]}` : `${REVIEW_CODE[cycle]} — ${CYCLE_LABEL[cycle]}`) : "No review frequency";
     out.push(...inCycle.map((r, i) => ({ ...r, serial: i + 1, group: `${label} (${inCycle.length})` })));
   }
   return out;
@@ -249,7 +277,7 @@ function sendPdf(res: Response, pdf: Buffer, filename: string): void {
 
 const registerPdfQuery = z.object({
   cycle: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY", "ALL"]),
-  status: z.enum(["all", "pending", "overdue", "completed", "pending_overdue"]).default("all"),
+  status: z.enum(["all", "pending", "running", "overdue", "completed", "pending_overdue"]).default("all"),
 });
 
 /**
@@ -292,6 +320,7 @@ const cycleSchema = z.object({
   cycle: cycleInput.nullable(),
   monthlyMondayOrdinal: ordinalInput,
   fortnightAnchor: anchorInput,
+  allocatedMonday: allocatedInput,
 });
 
 export async function setCycle(req: AuthRequest, res: Response): Promise<void> {
@@ -303,7 +332,7 @@ export async function setCycle(req: AuthRequest, res: Response): Promise<void> {
       tx,
       task,
       body.cycle,
-      { monthlyMondayOrdinal: body.monthlyMondayOrdinal, fortnightAnchor: body.fortnightAnchor },
+      { monthlyMondayOrdinal: body.monthlyMondayOrdinal, fortnightAnchor: body.fortnightAnchor, allocatedMonday: body.allocatedMonday },
       req.user!.id
     );
     await syncUpcomingMeetings(tx);
@@ -317,6 +346,7 @@ const bulkCycleSchema = z.object({
   cycle: cycleInput.nullable(),
   monthlyMondayOrdinal: ordinalInput,
   fortnightAnchor: anchorInput,
+  allocatedMonday: allocatedInput,
 });
 
 export async function setCycleBulk(req: AuthRequest, res: Response): Promise<void> {
@@ -324,7 +354,11 @@ export async function setCycleBulk(req: AuthRequest, res: Response): Promise<voi
   let count = 0;
   await prisma.$transaction(async (tx) => {
     const tasks = await tx.task.findMany({ where: { id: { in: body.taskIds }, deletedAt: null } });
-    const options = { monthlyMondayOrdinal: body.monthlyMondayOrdinal, fortnightAnchor: body.fortnightAnchor };
+    const options = {
+      monthlyMondayOrdinal: body.monthlyMondayOrdinal,
+      fortnightAnchor: body.fortnightAnchor,
+      allocatedMonday: body.allocatedMonday,
+    };
     const plans = tasks
       .map((task) => ({ task, patch: planCycleChange(toSchedulable(task), body.cycle, options, today()) }))
       .filter(
@@ -332,6 +366,7 @@ export async function setCycleBulk(req: AuthRequest, res: Response): Promise<voi
           patch.discussionFrequency !== task.discussionFrequency ||
           (patch.monthlyMondayOrdinal ?? null) !== (task.monthlyMondayOrdinal ?? null) ||
           (patch.fortnightAnchor ?? null) !== toISODateOrNull(task.fortnightAnchor) ||
+          (patch.allocatedMonday ?? null) !== toISODateOrNull(task.allocatedMonday) ||
           task.scheduleState !== "SCHEDULED"
       );
 
@@ -371,7 +406,33 @@ const rescheduleSchema = z.object({
   reason: z.string().max(1000).optional(),
 });
 
-/** Move one review date to another Monday. The frequency and calendar are unchanged. */
+/**
+ * An explicit move also updates finalized agendas: off the old Monday, onto
+ * the new one (at most one row per task per meeting).
+ */
+async function moveOnFinalizedAgendas(tx: Prisma.TransactionClient, task: Task, toDate: ISODate, fromDate: ISODate | null, reason: string) {
+  const finalized = await tx.meeting.findMany({
+    where: {
+      status: "FINALIZED",
+      meetingDate: { in: [fromISODate(toDate), ...(fromDate && fromDate !== toDate ? [fromISODate(fromDate)] : [])] },
+    },
+  });
+  for (const m of finalized) {
+    if (toISODate(m.meetingDate) === toDate) {
+      await tx.meetingAgendaItem.createMany({
+        data: [{ meetingId: m.id, taskId: task.id, section: cycleSection(task.discussionFrequency), inclusion: "BROUGHT_FORWARD", reason }],
+        skipDuplicates: true,
+      });
+    } else {
+      await tx.meetingAgendaItem.deleteMany({ where: { meetingId: m.id, taskId: task.id, outcome: "PENDING" } });
+    }
+  }
+}
+
+/**
+ * Move one review date to another Monday. The frequency and calendar are
+ * unchanged; a one-time task gets the new date as its allocated Monday.
+ */
 export async function rescheduleTask(req: AuthRequest, res: Response): Promise<void> {
   const body = validate(rescheduleSchema, req.body);
   await prisma.$transaction(async (tx) => {
@@ -382,24 +443,51 @@ export async function rescheduleTask(req: AuthRequest, res: Response): Promise<v
       type: patch.scheduleState === "DEFERRED" ? "DEFERRED" : patch.scheduleState === "SCHEDULED" ? "RESCHEDULED" : "BROUGHT_FORWARD",
       userId: req.user!.id,
     });
-    // An explicit move also updates finalized agendas: off the old Monday,
-    // onto the new one (at most one row per task per meeting).
-    const finalized = await tx.meeting.findMany({
-      where: {
-        status: "FINALIZED",
-        meetingDate: { in: [fromISODate(body.toDate), ...(patch.originalDiscussionDate ? [fromISODate(patch.originalDiscussionDate)] : [])] },
-      },
-    });
-    for (const m of finalized) {
-      if (toISODate(m.meetingDate) === body.toDate) {
-        await tx.meetingAgendaItem.createMany({
-          data: [{ meetingId: m.id, taskId: task.id, section: task.discussionFrequency ?? "NEW", inclusion: "BROUGHT_FORWARD", reason: patch.scheduleReason ?? "Rescheduled" }],
-          skipDuplicates: true,
-        });
-      } else {
-        await tx.meetingAgendaItem.deleteMany({ where: { meetingId: m.id, taskId: task.id, outcome: "PENDING" } });
-      }
+    const from = patch.allocatedMonday !== undefined ? toISODateOrNull(task.allocatedMonday) : patch.originalDiscussionDate;
+    await moveOnFinalizedAgendas(tx, task, body.toDate, from, patch.scheduleReason ?? "Rescheduled");
+    await syncUpcomingMeetings(tx);
+  }, TX_OPTIONS);
+  changed();
+  res.json({ success: true });
+}
+
+const importantSchema = z.object({ important: z.boolean() });
+
+/**
+ * Mark a task as important for immediate discussion: it is highlighted and
+ * put on the coming Monday's agenda (a task without a review frequency
+ * becomes "Next Monday"). Unmarking only removes the highlight.
+ */
+export async function setImportant(req: AuthRequest, res: Response): Promise<void> {
+  const body = validate(importantSchema, req.body);
+  await prisma.$transaction(async (tx) => {
+    let task = await tx.task.findFirst({ where: { id: param(req, "id"), deletedAt: null } });
+    if (!task) throw notFound("Task not found");
+    if (body.important && task.status === "COMPLETED") throw new SchedulingError("A completed task cannot be marked important.");
+    if (task.flaggedForReview !== body.important) {
+      task = await tx.task.update({ where: { id: task.id }, data: { flaggedForReview: body.important } });
+      await logEvent(tx, {
+        taskId: task.id,
+        type: "REVIEW_UPDATED",
+        userId: req.user!.id,
+        reason: body.important ? "Marked important for immediate discussion" : "No longer marked important",
+      });
     }
+    if (!body.important) return;
+
+    const upcoming = mondayOnOrAfter(today());
+    if (isDueOn(toSchedulable(task), upcoming)) return;
+    const reason = "Important: for immediate discussion";
+    const patch = task.discussionFrequency
+      ? planReschedule(toSchedulable(task), upcoming, reason, today())
+      : planCycleChange(toSchedulable(task), "NEXT_MONDAY", {}, today());
+    const from = isOneTime(task.discussionFrequency) ? toISODateOrNull(task.allocatedMonday) : patch.originalDiscussionDate;
+    task = await applyPatch(tx, task, patch, {
+      type: task.discussionFrequency ? "BROUGHT_FORWARD" : "INITIALIZED",
+      userId: req.user!.id,
+      reason,
+    });
+    await moveOnFinalizedAgendas(tx, task, upcoming, from ?? null, reason);
     await syncUpcomingMeetings(tx);
   }, TX_OPTIONS);
   changed();
@@ -446,6 +534,45 @@ export async function taskHistory(req: AuthRequest, res: Response): Promise<void
 // ---------------------------------------------------------------------------
 // Monday agenda
 
+// Everything the 12-column agenda shows: officers, remarks and files.
+const agendaInclude = {
+  officer: true,
+  additionalAssignees: { include: { officer: true } },
+  officerUpdates: { include: { officer: true }, orderBy: { createdAt: "desc" as const } },
+  attachments: { orderBy: { createdAt: "asc" as const } },
+} satisfies Prisma.TaskInclude;
+
+type AgendaTask = Prisma.TaskGetPayload<{ include: typeof agendaInclude }>;
+
+function fileView(a: AgendaTask["attachments"][number]) {
+  return { id: a.id, kind: a.kind, name: a.name, url: a.url };
+}
+
+/** The latest BO remark (newest update with a remark or a file) and its files. */
+function latestBoUpdate(task: AgendaTask) {
+  const update = task.officerUpdates.find(
+    (u) => u.remark?.trim() || task.attachments.some((a) => a.officerUpdateId === u.id)
+  );
+  if (!update) return null;
+  return {
+    remark: update.remark?.trim() || null,
+    by: update.officer.designation,
+    at: toISODate(update.createdAt),
+    files: task.attachments.filter((a) => a.officerUpdateId === update.id).map(fileView),
+  };
+}
+
+/** Review Frequency as shown in the agenda: "W (Weekly)", "Next Month", ... */
+function frequencyText(cycle: Cycle | null): string {
+  if (!cycle) return "—";
+  return isOneTime(cycle) ? CYCLE_LABEL[cycle] : `${REVIEW_CODE[cycle]} (${CYCLE_LABEL[cycle]})`;
+}
+
+/** Newest task date first; S.N. follows this order on the website and in the PDF. */
+function byDateDesc(a: { date: Date | string; taskNumber: number }, b: { date: Date | string; taskNumber: number }): number {
+  return new Date(b.date).getTime() - new Date(a.date).getTime() || b.taskNumber - a.taskNumber;
+}
+
 /** Tasks due on one Monday (read-only: viewing or exporting stores nothing). */
 async function agendaView(meetingDate: ISODate) {
   const meeting = await prisma.meeting.findUnique({
@@ -463,7 +590,7 @@ async function agendaView(meetingDate: ISODate) {
 
   const details = await prisma.task.findMany({
     where: { id: { in: result.entries.map((e) => e.taskId) } },
-    include: registerInclude,
+    include: agendaInclude,
   });
   const byId = new Map(details.map((t) => [t.id, t]));
 
@@ -474,6 +601,13 @@ async function agendaView(meetingDate: ISODate) {
       return {
         // Allocated Monday and next date as seen from this meeting.
         ...registerView(task, meetingDate),
+        date: toISODate(task.date),
+        frequency: frequencyText(task.discussionFrequency),
+        otherOfficers: task.additionalAssignees.map((a) => a.officer.designation),
+        actionPlan: task.actionPlan,
+        drmRemark: task.remarks,
+        drmFiles: task.attachments.filter((a) => !a.officerUpdateId).map(fileView),
+        latestBo: latestBoUpdate(task),
         scheduledDate: meetingDate,
         reason: e.reason,
         inclusion: e.inclusion,
@@ -481,10 +615,8 @@ async function agendaView(meetingDate: ISODate) {
         notes: storedByTask.get(e.taskId)?.discussionNotes ?? null,
       };
     })
-    .sort(
-      (a, b) =>
-        CYCLES.indexOf(a.cycle as Cycle) - CYCLES.indexOf(b.cycle as Cycle) || a.taskNumber - b.taskNumber
-    );
+    .sort(byDateDesc)
+    .map((item, i) => ({ serial: i + 1, ...item }));
 
   return {
     meetingDate,
@@ -627,15 +759,33 @@ export async function exportAgenda(req: AuthRequest, res: Response): Promise<voi
   const view = await agendaView(meetingDate);
 
   if (format === "pdf") {
+    // Only the tasks allocated to this Monday, in the website's order
+    // (newest date first, S.N. renumbered).
     const unsorted = await prisma.task.findMany({
       where: { id: { in: view.items.map((i) => i.id) } },
-      include: pdfInclude,
+      include: agendaInclude,
     });
-    // Same order as the website agenda.
     const order = new Map(view.items.map((item, i) => [item.id, i]));
     const tasks = unsorted.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
-    const rows = pdfRows(tasks, meetingDate, meetingDate).map((r) => ({ ...r, description: "" }));
-    const count = (c: Cycle) => tasks.filter((t) => t.discussionFrequency === c).length;
+    const rows = rowsFromTasks(tasks).map((row, i): TaskExportRow => {
+      const task = tasks[i];
+      const item = view.items[i];
+      const bo = item.latestBo;
+      const rule = task.discussionFrequency && !isOneTime(task.discussionFrequency) ? item.allocatedMonday : null;
+      return {
+        ...row,
+        serial: i + 1,
+        task: task.flaggedForReview ? `[IMPORTANT] ${task.title}` : task.title,
+        description: "",
+        // The agenda shows the Action Plan entered for the task.
+        actionPlan: task.actionPlan?.trim() || "-",
+        status: item.status,
+        review: item.frequency,
+        allocatedMonday: rule ? `${fmt(meetingDate)}\n(${rule})` : fmt(meetingDate),
+        boRemark: bo ? `${bo.remark ?? "(file only)"}\n— ${bo.by}, ${fmt(bo.at)}` : "-",
+        boAttachment: bo ? bo.files.map((f) => f.url).join("\n") : "",
+      };
+    });
     const longDate = fromISODate(meetingDate).toLocaleDateString("en-GB", {
       weekday: "long",
       day: "numeric",
@@ -643,24 +793,23 @@ export async function exportAgenda(req: AuthRequest, res: Response): Promise<voi
       year: "numeric",
       timeZone: "UTC",
     });
-    const pdf = await exportToPdf(groupedRows(rows, tasks), {
-      title: "Monday Review Meeting",
+    const important = tasks.filter((t) => t.flaggedForReview).length;
+    const pdf = await exportToPdf(rows, {
+      title: `Monday Discussion Agenda — Meeting on ${longDate}`,
       subtitle:
-        `Agenda for ${longDate}  •  ${tasks.length} task(s): W ${count("WEEKLY")} · FT ${count("FORTNIGHTLY")} · M ${count("MONTHLY")}  •  ` +
-        `${view.finalized ? "Agenda finalized" : "Agenda not yet finalized"}  •  Generated ${generatedAt()}` +
-        `
-W = Weekly (every Monday)   FT = Fortnightly (alternate Mondays)   M = Monthly (allocated Monday)`,
+        `${tasks.length} task(s) allocated to this Monday${important ? ` (${important} marked important)` : ""}  •  ` +
+        `Sorted by date, latest first  •  ${view.finalized ? "Agenda finalized" : "Agenda not yet finalized"}  •  Generated ${generatedAt()}`,
       columns: AGENDA_COLUMNS,
       widths: AGENDA_WIDTHS,
-      labels: { serial: "S. No.", task: "Task Name", review: "Review Freq.", latestBoRemark: "Latest BO Remarks", actionPlan: "Action Plan" },
-      footer: `RailWork  ·  Monday Review Meeting, ${fmt(meetingDate)}`,
+      labels: AGENDA_LABELS,
+      footer: `RailWork  ·  Monday Discussion Agenda, ${fmt(meetingDate)}`,
     });
-    sendPdf(res, pdf, `monday_agenda_${meetingDate}.pdf`);
+    sendPdf(res, pdf, `monday_discussion_agenda_${meetingDate}.pdf`);
     return;
   }
 
-  const rows: AgendaExportRow[] = view.items.map((t, i) => ({
-    serial: i + 1,
+  const rows: AgendaExportRow[] = view.items.map((t) => ({
+    serial: t.serial,
     taskId: t.taskNumber,
     title: t.title,
     coordinator: t.officer,

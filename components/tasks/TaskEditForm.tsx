@@ -99,6 +99,7 @@ export default function TaskEditForm({ id }: { id?: string }) {
           cycle: t.discussionFrequency ?? "",
           monthlyMondayOrdinal: t.monthlyMondayOrdinal ?? 1,
           fortnightAnchor: t.fortnightAnchor ?? "",
+          allocatedMonday: t.allocatedMondayDate ?? "",
         };
         setSchedule(loadedSchedule);
         setInitialSchedule(loadedSchedule);
@@ -312,7 +313,8 @@ const removeBoRemark = async (index: number) => {
     const scheduleChanges =
       nextSchedule.discussionFrequency !== prevSchedule.discussionFrequency ||
       nextSchedule.monthlyMondayOrdinal !== prevSchedule.monthlyMondayOrdinal ||
-      nextSchedule.fortnightAnchor !== prevSchedule.fortnightAnchor
+      nextSchedule.fortnightAnchor !== prevSchedule.fortnightAnchor ||
+      nextSchedule.allocatedMonday !== prevSchedule.allocatedMonday
         ? nextSchedule
         : {};
 
@@ -531,6 +533,7 @@ for (const item of boRemarks) {
               onChange={(e) => setStatus(e.target.value)}
             >
               <option>Pending</option>
+              <option>Running</option>
               <option>Completed</option>
             </select>
           </div>

@@ -20,8 +20,8 @@ ChartJS.register(
 );
 
 const defaultData = {
-  labels: ["Completed", "Pending", "Overdue"],
-  data: [0, 0, 0],
+  labels: ["Completed", "Pending", "Overdue", "Running"],
+  data: [0, 0, 0, 0],
 };
 
 export default function TaskStatusChart() {
@@ -57,6 +57,7 @@ export default function TaskStatusChart() {
           "#22c55e",
           "#facc15",
           "#ef4444",
+          "#3b82f6",
         ],
         borderWidth: 0,
       },

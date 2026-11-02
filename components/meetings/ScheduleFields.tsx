@@ -4,23 +4,32 @@ import {
   CYCLES,
   CYCLE_HINT,
   FIFTH_MONDAY_NOTE,
+  ONE_TIME_CYCLES,
+  ONE_TIME_HINT,
+  ONE_TIME_LABEL,
   ORDINAL_OPTIONS,
   REVIEW_CODE,
+  addDaysISO,
   fmtDay,
+  fmtMonday,
   fortnightStartOptions,
+  isOneTime,
   mondayOnOrAfterISO,
-  type Cycle,
+  nextMonthMondaysISO,
+  type Frequency,
 } from "@/lib/meetings";
 
 export interface ScheduleValue {
-  cycle: Cycle | "";
+  cycle: Frequency | "";
   /** M: allocated Monday of the month (1-5). */
   monthlyMondayOrdinal: number;
   /** FT: a Monday the alternate-week cycle runs from. */
   fortnightAnchor: string;
+  /** Next Month / Flexible Date: the chosen Monday (YYYY-MM-DD). */
+  allocatedMonday?: string;
 }
 
-export const EMPTY_SCHEDULE: ScheduleValue = { cycle: "", monthlyMondayOrdinal: 1, fortnightAnchor: "" };
+export const EMPTY_SCHEDULE: ScheduleValue = { cycle: "", monthlyMondayOrdinal: 1, fortnightAnchor: "", allocatedMonday: "" };
 
 function localToday(): string {
   const d = new Date();
@@ -34,10 +43,13 @@ export function scheduleBody(value: ScheduleValue) {
     monthlyMondayOrdinal: value.cycle === "MONTHLY" ? value.monthlyMondayOrdinal : null,
     fortnightAnchor:
       value.cycle === "FORTNIGHTLY" ? value.fortnightAnchor || mondayOnOrAfterISO(localToday()) : null,
+    // Next Monday is always the coming Monday; the server works it out.
+    allocatedMonday:
+      value.cycle === "NEXT_MONTH" || value.cycle === "FLEXIBLE" ? value.allocatedMonday || null : null,
   };
 }
 
-/** Monday-meeting review frequency (W / FT / M) for the Add Task and Edit Task forms. */
+/** Monday-meeting review frequency (W / FT / M, or one-time) for the Add Task and Edit Task forms. */
 export default function ScheduleFields({
   value,
   onChange,
@@ -51,6 +63,10 @@ export default function ScheduleFields({
   const starts = fortnightStartOptions(upcoming);
   // Keep a saved start Monday selectable even if it is in the past.
   const anchorKnown = !value.fortnightAnchor || starts.some((o) => o.value === value.fortnightAnchor);
+  const nextMonth = nextMonthMondaysISO(localToday());
+  const flexible = Array.from({ length: 26 }, (_, i) => addDaysISO(upcoming, 7 * i));
+  const mondayChoices = value.cycle === "NEXT_MONTH" ? nextMonth : flexible;
+  const allocatedKnown = !value.allocatedMonday || mondayChoices.includes(value.allocatedMonday);
 
   return (
     <>
@@ -59,26 +75,73 @@ export default function ScheduleFields({
         <select
           value={value.cycle}
           onChange={(e) => {
-            const cycle = e.target.value as Cycle | "";
+            const cycle = e.target.value as Frequency | "";
             onChange({
               ...value,
               cycle,
               fortnightAnchor: cycle === "FORTNIGHTLY" ? value.fortnightAnchor || upcoming : value.fortnightAnchor,
+              allocatedMonday:
+                cycle === "NEXT_MONTH"
+                  ? nextMonth.includes(value.allocatedMonday ?? "") ? value.allocatedMonday : nextMonth[0]
+                  : cycle === "FLEXIBLE"
+                    ? value.allocatedMonday && value.allocatedMonday >= upcoming ? value.allocatedMonday : upcoming
+                    : value.allocatedMonday,
             });
           }}
         >
           <option value="">Not assigned</option>
-          {CYCLES.map((c) => (
-            <option key={c} value={c}>
-              {REVIEW_CODE[c]} – {CYCLE_HINT[c].split(" – ")[0]}
-            </option>
-          ))}
+          <optgroup label="Repeating">
+            {CYCLES.map((c) => (
+              <option key={c} value={c}>
+                {REVIEW_CODE[c]} – {CYCLE_HINT[c].split(" – ")[0]}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="One-time">
+            {ONE_TIME_CYCLES.map((c) => (
+              <option key={c} value={c}>
+                {ONE_TIME_LABEL[c]}
+              </option>
+            ))}
+          </optgroup>
         </select>
         <span className="form-hint">
-          {value.cycle ? CYCLE_HINT[value.cycle] : "How often this task is reviewed at the Monday meeting."}
+          {value.cycle
+            ? isOneTime(value.cycle)
+              ? ONE_TIME_HINT[value.cycle]
+              : CYCLE_HINT[value.cycle]
+            : "How often this task is reviewed at the Monday meeting."}
           {nextDiscussionDate ? ` Next scheduled discussion: ${fmtDay(nextDiscussionDate)}.` : ""}
         </span>
       </div>
+
+      {value.cycle === "NEXT_MONDAY" && (
+        <div className="form-group">
+          <label>Allocated Monday</label>
+          <input value={fmtMonday(upcoming)} readOnly />
+          <span className="form-hint">To pick another Monday, choose Flexible Date.</span>
+        </div>
+      )}
+
+      {(value.cycle === "NEXT_MONTH" || value.cycle === "FLEXIBLE") && (
+        <div className="form-group">
+          <label>Allocated Monday</label>
+          <select
+            value={value.allocatedMonday || mondayChoices[0]}
+            onChange={(e) => onChange({ ...value, allocatedMonday: e.target.value })}
+          >
+            {!allocatedKnown && <option value={value.allocatedMonday}>Current: {fmtDay(value.allocatedMonday)}</option>}
+            {mondayChoices.map((d) => (
+              <option key={d} value={d}>
+                {fmtMonday(d)}
+              </option>
+            ))}
+          </select>
+          <span className="form-hint">
+            The Monday this task is discussed. This is not the Execution Date (TDC).
+          </span>
+        </div>
+      )}
 
       {value.cycle === "MONTHLY" && (
         <div className="form-group">

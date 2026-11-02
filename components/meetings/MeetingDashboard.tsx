@@ -6,6 +6,12 @@ import {
   CYCLE_HINT,
   CYCLE_LABEL,
   FIFTH_MONDAY_NOTE,
+  ONE_TIME_CYCLES,
+  ONE_TIME_HINT,
+  ONE_TIME_LABEL,
+  frequencyLabel,
+  isOneTime,
+  setImportant,
   ORDINAL_OPTIONS,
   REVIEW_CODE,
   STATUS_FILTER_OPTIONS,
@@ -26,30 +32,32 @@ import {
   rescheduleTask,
   setCycle,
   setCycleBulk,
+  type AgendaFile,
   type AgendaResponse,
   type AgendaTask,
   type Cycle,
   type CycleOptions,
+  type Frequency,
   type RegisterResponse,
   type RegisterTask,
   type StatusFilter,
 } from "@/lib/meetings";
 import { HistoryDialog, RescheduleDialog } from "./MeetingDialogs";
 
-type View = Cycle | "UNASSIGNED" | "AGENDA";
+type View = Cycle | "ONE_TIME" | "UNASSIGNED" | "AGENDA";
 type SortKey = "taskNumber" | "title" | "nextDiscussionDate" | "status";
 
-const STATUS_CLASS: Record<string, string> = { Pending: "is-warn", Overdue: "is-urgent", Completed: "is-ok" };
-const STATUS_ORDER: Record<string, number> = { Overdue: 0, Pending: 1, Completed: 2 };
+const STATUS_CLASS: Record<string, string> = { Pending: "is-warn", Running: "is-info", Overdue: "is-urgent", Completed: "is-ok" };
+const STATUS_ORDER: Record<string, number> = { Overdue: 0, Pending: 1, Running: 2, Completed: 3 };
 
 function initialView(): View {
   if (typeof window === "undefined") return "WEEKLY";
   const v = new URLSearchParams(window.location.search).get("view")?.toUpperCase();
-  return v && ["WEEKLY", "FORTNIGHTLY", "MONTHLY", "UNASSIGNED", "AGENDA"].includes(v) ? (v as View) : "WEEKLY";
+  return v && ["WEEKLY", "FORTNIGHTLY", "MONTHLY", "ONE_TIME", "UNASSIGNED", "AGENDA"].includes(v) ? (v as View) : "WEEKLY";
 }
 
-function codeLabel(cycle: Cycle): string {
-  return `${REVIEW_CODE[cycle]} (${CYCLE_LABEL[cycle]})`;
+function codeLabel(cycle: Frequency): string {
+  return frequencyLabel(cycle);
 }
 
 export default function MeetingDashboard() {
@@ -120,7 +128,7 @@ export default function MeetingDashboard() {
   };
 
   /** Change a task's review frequency (and, for FT / M, its allocation). */
-  const changeSchedule = (task: RegisterTask, cycle: Cycle | null, options: CycleOptions = {}) => {
+  const changeSchedule = (task: RegisterTask, cycle: Frequency | null, options: CycleOptions = {}) => {
     const from = task.cycle ? codeLabel(task.cycle) : "not assigned";
     const to = cycle ? codeLabel(cycle) : "not assigned";
     if (
@@ -131,6 +139,19 @@ export default function MeetingDashboard() {
       return;
     }
     run(() => setCycle(task.id, cycle, options));
+  };
+
+  /** One-time tasks: move the allocated Monday. */
+  const allocate = (task: RegisterTask, date: string) => run(() => rescheduleTask(task.id, date));
+
+  const toggleImportant = (task: RegisterTask) => {
+    if (
+      !task.important &&
+      !window.confirm(`Mark #${task.taskNumber} as important for immediate discussion?\n\nIt is highlighted and put on the coming Monday's agenda.`)
+    ) {
+      return;
+    }
+    run(() => setImportant(task.id, !task.important));
   };
 
   if (!register) {
@@ -145,7 +166,8 @@ export default function MeetingDashboard() {
         <div>
           <h1 className="page-title">Monday Meeting</h1>
           <p className="mtg-subtitle">
-            Next meeting: {fmtMonday(register.upcomingMonday)} · W = Weekly, FT = Fortnightly, M = Monthly
+            Next meeting: {fmtMonday(register.upcomingMonday)} · W = Weekly, FT = Fortnightly, M = Monthly · One-time: Next
+            Monday, Next Month, Flexible Date
           </p>
         </div>
         <AllCyclesDownload />
@@ -173,11 +195,24 @@ export default function MeetingDashboard() {
         <button
           type="button"
           role="tab"
+          aria-selected={view === "ONE_TIME"}
+          className={`mtg-cycle-card ${view === "ONE_TIME" ? "is-active" : ""}`}
+          onClick={() => selectView("ONE_TIME")}
+        >
+          <span className="mtg-cycle-name">
+            <span className="review-code code-ONE">1×</span> One-time tasks
+          </span>
+          <span className="mtg-cycle-count">{register.counts.ONE_TIME}</span>
+          <span className="mtg-cycle-hint">Next Monday, Next Month or Flexible Date</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={view === "AGENDA"}
           className={`mtg-cycle-card is-agenda ${view === "AGENDA" ? "is-active" : ""}`}
           onClick={() => selectView("AGENDA")}
         >
-          <span className="mtg-cycle-name">Monday agenda</span>
+          <span className="mtg-cycle-name">Monday Discussion Agenda</span>
           <span className="mtg-cycle-count">{agendaCount}</span>
           <span className="mtg-cycle-hint">Scheduled for {agenda ? fmtDay(agenda.meetingDate) : "…"}</span>
         </button>
@@ -208,16 +243,22 @@ export default function MeetingDashboard() {
             run(() => reopenAgenda(agenda!.meetingDate))
           }
           onReschedule={(t) => setDialog({ kind: "reschedule", task: t, fromDate: t.scheduledDate })}
+          onImportant={toggleImportant}
           onHistory={(t) => setDialog({ kind: "history", task: t })}
         />
       ) : (
         <RegisterView
           key={view}
           view={view}
-          tasks={register.tasks.filter((t) => (view === "UNASSIGNED" ? !t.cycle : t.cycle === view))}
+          tasks={register.tasks.filter((t) =>
+            view === "UNASSIGNED" ? !t.cycle : view === "ONE_TIME" ? t.oneTime : t.cycle === view
+          )}
           upcomingMonday={register.upcomingMonday}
+          nextMonthMondays={register.nextMonthMondays}
           busy={busy}
           onSchedule={changeSchedule}
+          onAllocate={allocate}
+          onImportant={toggleImportant}
           onBulkCycle={(ids, cycle, options) => run(() => setCycleBulk(ids, cycle, options))}
           onReschedule={(t) => setDialog({ kind: "reschedule", task: t, fromDate: t.nextDiscussionDate })}
           onHistory={(t) => setDialog({ kind: "history", task: t })}
@@ -243,6 +284,13 @@ export default function MeetingDashboard() {
 
 function ReviewBadge({ task }: { task: Pick<RegisterTask, "reviewCode" | "cycle"> }) {
   if (!task.reviewCode || !task.cycle) return <span className="mtg-muted">—</span>;
+  if (isOneTime(task.cycle)) {
+    return (
+      <span className="review-code code-ONE" title={ONE_TIME_HINT[task.cycle]}>
+        {ONE_TIME_LABEL[task.cycle]}
+      </span>
+    );
+  }
   return (
     <span className={`review-code code-${task.reviewCode}`} title={CYCLE_HINT[task.cycle]}>
       {task.reviewCode}
@@ -257,21 +305,30 @@ function FrequencySelect({
 }: {
   task: RegisterTask;
   disabled: boolean;
-  onChange: (cycle: Cycle | null) => void;
+  onChange: (cycle: Frequency | null) => void;
 }) {
   return (
     <select
       aria-label={`Review frequency for task ${task.taskNumber}`}
       value={task.cycle ?? ""}
       disabled={disabled}
-      onChange={(e) => onChange((e.target.value || null) as Cycle | null)}
+      onChange={(e) => onChange((e.target.value || null) as Frequency | null)}
     >
       <option value="">Not assigned</option>
-      {CYCLES.map((c) => (
-        <option key={c} value={c}>
-          {REVIEW_CODE[c]}
-        </option>
-      ))}
+      <optgroup label="Repeating">
+        {CYCLES.map((c) => (
+          <option key={c} value={c}>
+            {REVIEW_CODE[c]}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label="One-time">
+        {ONE_TIME_CYCLES.map((c) => (
+          <option key={c} value={c}>
+            {ONE_TIME_LABEL[c]}
+          </option>
+        ))}
+      </optgroup>
     </select>
   );
 }
@@ -280,14 +337,40 @@ function FrequencySelect({
 function AllocatedMonday({
   task,
   upcomingMonday,
+  nextMonthMondays,
   disabled,
   onChange,
+  onAllocate,
 }: {
   task: RegisterTask;
   upcomingMonday: string;
+  nextMonthMondays: string[];
   disabled: boolean;
   onChange: (options: CycleOptions) => void;
+  onAllocate: (date: string) => void;
 }) {
+  if (isOneTime(task.cycle)) {
+    // Next Month: one of next month's Mondays. Otherwise any coming Monday.
+    const choices =
+      task.cycle === "NEXT_MONTH" ? nextMonthMondays : Array.from({ length: 26 }, (_, i) => addDaysISO(upcomingMonday, 7 * i));
+    const current = task.allocatedMondayDate ?? "";
+    return (
+      <select
+        aria-label={`Allocated Monday for task ${task.taskNumber}`}
+        value={current}
+        disabled={disabled || task.status === "Completed"}
+        onChange={(e) => e.target.value && e.target.value !== current && onAllocate(e.target.value)}
+      >
+        {current && !choices.includes(current) && <option value={current}>{fmtDay(current)}</option>}
+        {!current && <option value="">Choose Monday</option>}
+        {choices.map((d) => (
+          <option key={d} value={d}>
+            {fmtMonday(d)}
+          </option>
+        ))}
+      </select>
+    );
+  }
   if (task.cycle === "MONTHLY") {
     return (
       <>
@@ -342,21 +425,58 @@ function Remarks({ text }: { text: string }) {
   return <div className="mtg-remarks">{text}</div>;
 }
 
+function Files({ files }: { files: AgendaFile[] }) {
+  if (files.length === 0) return null;
+  return (
+    <ul className="mtg-files">
+      {files.map((f) => (
+        <li key={f.id}>
+          <a href={f.url} target="_blank" rel="noopener noreferrer">
+            {f.kind === "LINK" ? "🔗" : "📎"} {f.name}
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ImportantButton({ task, disabled, onClick }: { task: RegisterTask; disabled: boolean; onClick: () => void }) {
+  if (task.status === "Completed" && !task.important) return null;
+  return (
+    <button
+      type="button"
+      className={`mtg-btn-ghost mtg-btn-sm mtg-important-btn ${task.important ? "is-on" : ""}`}
+      aria-pressed={task.important}
+      disabled={disabled}
+      onClick={onClick}
+      title={task.important ? "Remove the Important mark" : "Mark important for immediate discussion (coming Monday)"}
+    >
+      {task.important ? "★ Important" : "☆ Mark important"}
+    </button>
+  );
+}
+
 function RegisterView({
   view,
   tasks,
   upcomingMonday,
+  nextMonthMondays,
   busy,
   onSchedule,
+  onAllocate,
+  onImportant,
   onBulkCycle,
   onReschedule,
   onHistory,
 }: {
-  view: Cycle | "UNASSIGNED";
+  view: Cycle | "ONE_TIME" | "UNASSIGNED";
   tasks: RegisterTask[];
   upcomingMonday: string;
+  nextMonthMondays: string[];
   busy: boolean;
-  onSchedule: (task: RegisterTask, cycle: Cycle | null, options?: CycleOptions) => void;
+  onSchedule: (task: RegisterTask, cycle: Frequency | null, options?: CycleOptions) => void;
+  onAllocate: (task: RegisterTask, date: string) => void;
+  onImportant: (task: RegisterTask) => void;
   onBulkCycle: (ids: string[], cycle: Cycle, options: CycleOptions) => void;
   onReschedule: (task: RegisterTask) => void;
   onHistory: (task: RegisterTask) => void;
@@ -393,6 +513,7 @@ function RegisterView({
 
   const counts = {
     Pending: tasks.filter((t) => t.status === "Pending").length,
+    Running: tasks.filter((t) => t.status === "Running").length,
     Overdue: tasks.filter((t) => t.status === "Overdue").length,
     Completed: tasks.filter((t) => t.status === "Completed").length,
   };
@@ -411,10 +532,15 @@ function RegisterView({
   );
 
   const isUnassigned = view === "UNASSIGNED";
-  const title = isUnassigned ? "Tasks without a review frequency" : `${codeLabel(view)} task register`;
+  const isOneTimeView = view === "ONE_TIME";
+  const title = isUnassigned
+    ? "Tasks without a review frequency"
+    : isOneTimeView
+      ? "One-time tasks (Next Monday / Next Month / Flexible Date)"
+      : `${codeLabel(view)} task register`;
 
   const download = async () => {
-    if (isUnassigned) return;
+    if (isUnassigned || isOneTimeView) return;
     setDownloading(true);
     try {
       await downloadRegisterPdf(view, status);
@@ -431,10 +557,11 @@ function RegisterView({
         <div>
           <h2>{title}</h2>
           <div className="mtg-muted">
-            {tasks.length} task(s): {counts.Pending} pending · {counts.Overdue} overdue · {counts.Completed} completed
+            {tasks.length} task(s): {counts.Pending} pending · {counts.Running} running · {counts.Overdue} overdue ·{" "}
+            {counts.Completed} completed
           </div>
         </div>
-        {!isUnassigned && (
+        {!isUnassigned && !isOneTimeView && (
           <button type="button" className="mtg-btn" onClick={download} disabled={downloading}>
             {downloading ? "Preparing PDF..." : `Download ${REVIEW_CODE[view]} PDF`}
           </button>
@@ -506,7 +633,7 @@ function RegisterView({
           </>
         )}
       </div>
-      {!isUnassigned && status !== "all" && (
+      {!isUnassigned && !isOneTimeView && status !== "all" && (
         <p className="mtg-muted" style={{ margin: "-4px 0 10px" }}>
           The PDF follows this status filter. Choose “All Statuses” for the complete register.
         </p>
@@ -561,7 +688,10 @@ function RegisterView({
                   <FrequencySelect task={t} disabled={busy} onChange={(cycle) => onSchedule(t, cycle)} />
                 </td>
                 <td>
-                  <div className="mtg-task-title">{t.title}</div>
+                  <div className="mtg-task-title">
+                    {t.important && <span className="mtg-important-tag">★ Important</span>}
+                    {t.title}
+                  </div>
                   <div className="mtg-muted">
                     #{t.taskNumber} · {t.officer}
                   </div>
@@ -570,8 +700,10 @@ function RegisterView({
                   <AllocatedMonday
                     task={t}
                     upcomingMonday={upcomingMonday}
+                    nextMonthMondays={nextMonthMondays}
                     disabled={busy}
                     onChange={(options) => onSchedule(t, t.cycle, options)}
+                    onAllocate={(date) => onAllocate(t, date)}
                   />
                 </td>
                 <td className="mtg-nowrap">
@@ -586,7 +718,8 @@ function RegisterView({
                 </td>
                 <td>
                   <div className="mtg-row-actions">
-                    {t.cycle && t.status !== "Completed" && (
+                    <ImportantButton task={t} disabled={busy} onClick={() => onImportant(t)} />
+                    {t.cycle && !t.oneTime && t.status !== "Completed" && (
                       <button type="button" className="mtg-btn-ghost mtg-btn-sm" disabled={busy} onClick={() => onReschedule(t)}>
                         Reschedule
                       </button>
@@ -604,7 +737,9 @@ function RegisterView({
                   {tasks.length === 0
                     ? isUnassigned
                       ? "Every task has a review frequency."
-                      : "No tasks with this review frequency yet."
+                      : isOneTimeView
+                        ? "No one-time tasks. Choose Next Monday, Next Month or Flexible Date as a task's review frequency."
+                        : "No tasks with this review frequency yet."
                     : "No tasks match the search or filter."}
                 </td>
               </tr>
@@ -621,6 +756,10 @@ function RegisterView({
   );
 }
 
+/**
+ * Monday Discussion Agenda: the tasks allocated to one Monday in 12 columns,
+ * newest task date first (same order and numbering as the PDF).
+ */
 function AgendaView({
   agenda,
   busy,
@@ -629,6 +768,7 @@ function AgendaView({
   onFinalize,
   onReopen,
   onReschedule,
+  onImportant,
   onHistory,
 }: {
   agenda: AgendaResponse | null;
@@ -638,6 +778,7 @@ function AgendaView({
   onFinalize: () => void;
   onReopen: () => void;
   onReschedule: (task: AgendaTask) => void;
+  onImportant: (task: AgendaTask) => void;
   onHistory: (task: AgendaTask) => void;
 }) {
   const [downloading, setDownloading] = useState(false);
@@ -645,11 +786,8 @@ function AgendaView({
 
   const date = agenda.meetingDate;
   const goTo = (value: string) => value && onDate(isMondayISO(value) ? value : mondayOnOrAfterISO(value));
-  const discussed = agenda.items.filter((i) => i.outcome === "DISCUSSED").length;
-  const groups: { key: string; label: string; items: AgendaTask[] }[] = [
-    ...CYCLES.map((c) => ({ key: c, label: codeLabel(c), items: agenda.items.filter((i) => i.cycle === c) })),
-    { key: "OTHER", label: "No review frequency", items: agenda.items.filter((i) => !i.cycle) },
-  ].filter((g) => g.items.length > 0);
+  const items = agenda.items;
+  const discussed = items.filter((i) => i.outcome === "DISCUSSED").length;
 
   const download = async (format: "pdf" | "xlsx") => {
     setDownloading(true);
@@ -662,14 +800,12 @@ function AgendaView({
     }
   };
 
-  let serial = 0;
-
   return (
     <div className="mtg-card">
       <div className="mtg-card-head">
         <div>
           <h2>
-            Agenda for {fmtMonday(date)}{" "}
+            Monday Discussion Agenda — {fmtMonday(date)}{" "}
             {agenda.finalized ? (
               <span className="mtg-chip is-ok">Finalized</span>
             ) : (
@@ -679,7 +815,7 @@ function AgendaView({
           <div className="mtg-muted">
             {agenda.finalized
               ? `Finalized ${agenda.finalizedAt ? new Date(agenda.finalizedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : ""}. Tasks created after this go to the following Monday.`
-              : "Tasks are selected automatically from their review frequency. Finalize the agenda once it is sent out."}
+              : "Only tasks allocated to this Monday are shown, newest date first. Finalize the agenda once it is sent out."}
           </div>
         </div>
         <div className="mtg-row-actions">
@@ -688,12 +824,12 @@ function AgendaView({
               Reopen
             </button>
           ) : (
-            <button type="button" className="mtg-btn-ghost" disabled={busy || agenda.items.length === 0} onClick={onFinalize}>
+            <button type="button" className="mtg-btn-ghost" disabled={busy || items.length === 0} onClick={onFinalize}>
               Finalize agenda
             </button>
           )}
           <button type="button" className="mtg-btn" disabled={downloading} onClick={() => download("pdf")}>
-            Download agenda PDF
+            {downloading ? "Preparing..." : "Download Agenda PDF"}
           </button>
           <button type="button" className="mtg-btn-ghost" disabled={downloading} onClick={() => download("xlsx")}>
             Excel
@@ -703,24 +839,28 @@ function AgendaView({
 
       <div className="mtg-summary" aria-label="Meeting summary">
         <div className="mtg-stat">
-          <span className="mtg-stat-value">{agenda.items.length}</span>
+          <span className="mtg-stat-value">{items.length}</span>
           <span className="mtg-stat-label">Tasks</span>
         </div>
-        {CYCLES.map((c) => (
-          <div className="mtg-stat" key={c}>
-            <span className="mtg-stat-value">{agenda.items.filter((i) => i.cycle === c).length}</span>
-            <span className="mtg-stat-label">
-              <span className={`review-code code-${REVIEW_CODE[c]}`}>{REVIEW_CODE[c]}</span> {CYCLE_LABEL[c]}
-            </span>
-          </div>
-        ))}
         <div className="mtg-stat">
-          <span className="mtg-stat-value is-urgent">{agenda.items.filter((i) => i.status === "Overdue").length}</span>
+          <span className="mtg-stat-value is-urgent">{items.filter((i) => i.important).length}</span>
+          <span className="mtg-stat-label">★ Important</span>
+        </div>
+        <div className="mtg-stat">
+          <span className="mtg-stat-value">{items.filter((i) => i.oneTime).length}</span>
+          <span className="mtg-stat-label">One-time</span>
+        </div>
+        <div className="mtg-stat">
+          <span className="mtg-stat-value">{items.filter((i) => i.status === "Running").length}</span>
+          <span className="mtg-stat-label">Running</span>
+        </div>
+        <div className="mtg-stat">
+          <span className="mtg-stat-value is-urgent">{items.filter((i) => i.status === "Overdue").length}</span>
           <span className="mtg-stat-label">Overdue</span>
         </div>
         <div className="mtg-stat">
           <span className="mtg-stat-value">
-            {discussed}/{agenda.items.length}
+            {discussed}/{items.length}
           </span>
           <span className="mtg-stat-label">Discussed</span>
         </div>
@@ -730,7 +870,10 @@ function AgendaView({
         <button type="button" className="mtg-btn-ghost mtg-btn-sm" onClick={() => goTo(addDaysISO(date, -7))}>
           ‹ Previous Monday
         </button>
-        <input type="date" aria-label="Meeting date" value={date} onChange={(e) => goTo(e.target.value)} />
+        <label className="mtg-date-pick">
+          <span>Meeting date</span>
+          <input type="date" aria-label="Meeting date" value={date} onChange={(e) => goTo(e.target.value)} />
+        </label>
         <button type="button" className="mtg-btn-ghost mtg-btn-sm" onClick={() => goTo(addDaysISO(date, 7))}>
           Next Monday ›
         </button>
@@ -741,87 +884,106 @@ function AgendaView({
         )}
       </div>
 
-      {agenda.items.length === 0 && <div className="mtg-empty">No tasks are scheduled for this Monday.</div>}
-
-      {groups.map((g) => (
-        <div key={g.key} className="mtg-group">
-          <h3 className="mtg-group-title">
-            {g.label} <span className="mtg-muted">· {g.items.length}</span>
-          </h3>
-          <div className="mtg-table-wrap">
-            <table className="mtg-table">
-              <thead>
-                <tr>
-                  <th>S. No.</th>
-                  <th>Review Frequency</th>
-                  <th>Task Name</th>
-                  <th>Allocated Monday</th>
-                  <th>Scheduled Discussion</th>
-                  <th>Status</th>
-                  <th>Latest Remark / Update</th>
-                  <th>Discussed</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {g.items.map((t) => {
-                  serial += 1;
-                  const done = t.outcome === "DISCUSSED";
-                  const moved = t.inclusion === "BROUGHT_FORWARD" ? t.reason : null;
-                  return (
-                    <tr key={t.id} className={done ? "is-done" : ""}>
-                      <td className="mtg-id">{serial}</td>
-                      <td>
-                        <ReviewBadge task={t} />
-                      </td>
-                      <td>
-                        <div className="mtg-task-title">{t.title}</div>
-                        <div className="mtg-muted">
-                          #{t.taskNumber} · {t.officer}
-                        </div>
-                      </td>
-                      <td>{t.allocatedMonday || "—"}</td>
-                      <td className="mtg-nowrap">
-                        {fmtDay(t.scheduledDate)}
-                        {moved && <div className="mtg-note">{moved}</div>}
-                      </td>
-                      <td>
-                        <span className={`mtg-chip ${STATUS_CLASS[t.status]}`}>{t.status}</span>
-                      </td>
-                      <td>
-                        <Remarks text={t.remarks} />
-                      </td>
-                      <td>
-                        <label className="mtg-discussed">
-                          <input
-                            type="checkbox"
-                            checked={done}
-                            disabled={busy || t.outcome === "DEFERRED"}
-                            onChange={(e) => onDiscussed(t, e.target.checked)}
-                          />
-                          <span>Discussed</span>
-                        </label>
-                      </td>
-                      <td>
-                        <div className="mtg-row-actions">
-                          {!done && (
-                            <button type="button" className="mtg-btn-ghost mtg-btn-sm" disabled={busy} onClick={() => onReschedule(t)}>
-                              Reschedule
-                            </button>
-                          )}
-                          <button type="button" className="mtg-btn-ghost mtg-btn-sm" onClick={() => onHistory(t)}>
-                            History
+      {items.length === 0 ? (
+        <div className="mtg-empty">No tasks are allocated to this Monday.</div>
+      ) : (
+        <div className="mtg-table-wrap">
+          <table className="mtg-table mtg-agenda-table">
+            <thead>
+              <tr>
+                <th>S.N.</th>
+                <th>Date</th>
+                <th>Review Frequency</th>
+                <th>Allocated Monday</th>
+                <th>Task</th>
+                <th>Coordinator Officer</th>
+                <th>Other Officers</th>
+                <th>Action Plan</th>
+                <th>Execution Date (TDC)</th>
+                <th>Status</th>
+                <th>DRM Remark / File</th>
+                <th>Latest BO Remark / File</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((t) => {
+                const done = t.outcome === "DISCUSSED";
+                const moved = t.inclusion === "BROUGHT_FORWARD" ? t.reason : null;
+                const rule = t.cycle && !t.oneTime ? t.allocatedMonday : null;
+                return (
+                  <tr key={t.id} className={`${done ? "is-done" : ""} ${t.important ? "is-important" : ""}`}>
+                    <td className="mtg-id">{t.serial}</td>
+                    <td className="mtg-nowrap">{fmtDay(t.date)}</td>
+                    <td>
+                      <ReviewBadge task={t} />
+                    </td>
+                    <td className="mtg-nowrap">
+                      {fmtDay(t.scheduledDate)}
+                      {rule && <div className="mtg-muted">{rule}</div>}
+                      {moved && <div className="mtg-note">{moved}</div>}
+                      {!done && t.status !== "Completed" && (
+                        <div>
+                          <button type="button" className="mtg-link-btn" disabled={busy} onClick={() => onReschedule(t)}>
+                            Change Monday
                           </button>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      )}
+                    </td>
+                    <td className="mtg-agenda-task">
+                      <div className="mtg-task-title">
+                        {t.important && <span className="mtg-important-tag">★ Important</span>}
+                        {t.title}
+                      </div>
+                      <div className="mtg-muted">#{t.taskNumber}</div>
+                      <div className="mtg-row-actions" style={{ marginTop: 6 }}>
+                        <ImportantButton task={t} disabled={busy} onClick={() => onImportant(t)} />
+                        <button type="button" className="mtg-btn-ghost mtg-btn-sm" onClick={() => onHistory(t)}>
+                          History
+                        </button>
+                      </div>
+                    </td>
+                    <td>{t.officer}</td>
+                    <td>{t.otherOfficers.length ? t.otherOfficers.join(", ") : <span className="mtg-muted">—</span>}</td>
+                    <td>
+                      <Remarks text={t.actionPlan ?? ""} />
+                    </td>
+                    <td className="mtg-nowrap">{fmtDay(t.dueDate)}</td>
+                    <td>
+                      <span className={`mtg-chip ${STATUS_CLASS[t.status]}`}>{t.status}</span>
+                      <label className="mtg-discussed" style={{ marginTop: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={done}
+                          disabled={busy || t.outcome === "DEFERRED"}
+                          onChange={(e) => onDiscussed(t, e.target.checked)}
+                        />
+                        <span>Discussed</span>
+                      </label>
+                    </td>
+                    <td>
+                      <Remarks text={t.drmRemark ?? ""} />
+                      <Files files={t.drmFiles} />
+                    </td>
+                    <td>
+                      {t.latestBo ? (
+                        <>
+                          {t.latestBo.remark && <div className="mtg-remarks">{t.latestBo.remark}</div>}
+                          <div className="mtg-muted">
+                            {t.latestBo.by} · {fmtDay(t.latestBo.at)}
+                          </div>
+                          <Files files={t.latestBo.files} />
+                        </>
+                      ) : (
+                        <span className="mtg-muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      ))}
+      )}
     </div>
   );
 }

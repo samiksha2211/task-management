@@ -16,6 +16,12 @@ export default function StatusBadge({ status }: Props) {
     color = "#b45309";
   }
 
+  // Running work: blue, never shown as overdue.
+  if (status === "Running") {
+    background = "#e0ecfb";
+    color = "#1d4f91";
+  }
+
   // Same colours as the task register and PDFs.
   if (status === "Overdue") {
     background = "#fbe3e3";

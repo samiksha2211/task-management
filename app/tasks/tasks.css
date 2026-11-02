@@ -803,3 +803,5 @@ html[data-theme="dark"] .review-allocated { color:#94a3b8; }
         font-size:14px;
     }
 }
+
+.review-code.code-ONE { background:#ede9fe; color:#5b21b6; white-space:nowrap; }

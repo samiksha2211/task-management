@@ -122,6 +122,7 @@ router.post("/meetings/:date/items/:taskId/outcome", requireAuth, requireAdmin, 
 router.post("/schedule/cycle", requireAuth, requireAdmin, meetings.setCycleBulk);
 router.patch("/schedule/tasks/:id/cycle", requireAuth, requireAdmin, meetings.setCycle);
 router.post("/schedule/tasks/:id/reschedule", requireAuth, requireAdmin, meetings.rescheduleTask);
+router.post("/schedule/tasks/:id/important", requireAuth, requireAdmin, meetings.setImportant);
 router.get("/schedule/tasks/:id/history", requireAuth, requireAdmin, meetings.taskHistory);
 
 router.get("/dashboard/stats", requireAuth, dashboard.stats);

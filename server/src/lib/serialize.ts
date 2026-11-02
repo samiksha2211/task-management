@@ -6,6 +6,7 @@ import type {
   TaskAdditionalAssignee,
   TaskOfficerUpdate,
 } from "@prisma/client";
+import type { Cycle } from "../services/scheduling/config";
 import { allocatedMonday, nextDueDate, REVIEW_CODE } from "../services/scheduling/rules";
 import { today, toSchedulable } from "../services/scheduling/repository";
 
@@ -41,6 +42,7 @@ export function serializeAttachment(a: TaskAttachment): SerializedAttachment {
 
 export type TaskStatusLabel =
   | "Pending"
+  | "Running"
   | "Completed"
   | "Overdue";
 
@@ -105,13 +107,15 @@ export interface SerializedTask {
   priority: string | null;
 
   // Monday meeting scheduling
-  discussionFrequency: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
+  discussionFrequency: Cycle | null;
   monthlyMondayOrdinal: number | null;
   fortnightAnchor: string | null;
-  /** W / FT / M, or null without a review frequency. */
-  reviewCode: "W" | "FT" | "M" | null;
-  /** e.g. "Every Monday", "3rd Monday", "2nd Monday · alternate weeks". */
+  /** W / FT / M, or the one-time frequency's name; null without a review frequency. */
+  reviewCode: string | null;
+  /** e.g. "Every Monday", "3rd Monday", "2nd Monday · alternate weeks", "9 Nov 2026". */
   allocatedMonday: string | null;
+  /** One-time frequencies: the allocated Monday (YYYY-MM-DD). */
+  allocatedMondayDate: string | null;
   lastDiscussedAt: string | null;
   nextDiscussionDate: string | null;
   scheduleState: string;
@@ -193,7 +197,10 @@ export function serializeTask(
   const status: TaskStatusLabel =
     task.status === "COMPLETED"
       ? "Completed"
-      : isOverdue(task.dueDate)
+      : // Running work is never called overdue, whatever its execution date.
+        task.status === "RUNNING"
+        ? "Running"
+        : isOverdue(task.dueDate)
         ? "Overdue"
         : "Pending";
 
@@ -235,6 +242,7 @@ export function serializeTask(
       ? task.lastDiscussedAt.toISOString().slice(0, 10)
       : null,
     fortnightAnchor: task.fortnightAnchor ? task.fortnightAnchor.toISOString().slice(0, 10) : null,
+    allocatedMondayDate: task.allocatedMonday ? task.allocatedMonday.toISOString().slice(0, 10) : null,
     reviewCode: task.discussionFrequency ? REVIEW_CODE[task.discussionFrequency] : null,
     allocatedMonday: task.discussionFrequency ? allocatedMonday(toSchedulable(task), today()) : null,
     // Next Monday the task is due, from the same calendar as the meeting agenda.

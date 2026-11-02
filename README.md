@@ -86,8 +86,9 @@ Open http://localhost:3000 and sign in.
 | GET    | `/api/dashboard/task-status`      | Pie chart counts                           |
 | GET    | `/api/dashboard/weekly`           | Weekly created-task counts                 |
 
-**Overdue** is derived, not stored: a task is *Overdue* when its status is
-`Pending` and `dueDate` is before today.
+Statuses: **Pending**, **Running**, **Completed**, and **Overdue**. Overdue is derived, not stored:
+a task is *Overdue* when its status is `Pending` and `dueDate` is before today. A **Running**
+task (work in progress) is never shown as Overdue, whatever its execution date.
 
 ## Useful scripts
 
@@ -129,6 +130,18 @@ by the website and every PDF:
 | FT   | Fortnightly | Every other Monday, counted from its start Monday (`fortnightAnchor`); runs across months |
 | M    | Monthly     | Its allocated Monday of every month, 1st–5th (`monthlyMondayOrdinal`); a 5th Monday falls back to the last Monday in four-Monday months |
 
+One-time frequencies: the task is discussed once, on its **Allocated Monday**
+(`Task.allocatedMonday`). This is a meeting date, not the Execution Date (TDC).
+
+| Frequency     | Allocated Monday |
+| ------------- | ---------------- |
+| Next Monday   | The coming Monday |
+| Next Month    | A Monday of next month, picked by the DRM |
+| Flexible Date | Any Monday from the coming one on |
+
+The DRM can change the Allocated Monday (Reschedule / "Change Monday"). **Mark important** highlights
+a task and puts it on the coming Monday's agenda (a task without a frequency becomes Next Monday).
+
 - Selecting a Monday shows exactly the tasks due that day; nothing carries over and nothing is
   allocated by hand. Ticking **Discussed** only records it.
 - Each task appears at most once per Monday (agenda built per task; `meetingId + taskId` is unique).
@@ -143,9 +156,13 @@ by the website and every PDF:
   the server; text is never shortened). Older longer text only needs shortening when it is edited.
 - `MEETING_TIME_ZONE` (default `Asia/Kolkata`) decides what "today" is.
 
-PDFs: the **Monday agenda PDF** uses the compact table (S.No, Task Name, Review Freq., Allocated
-Monday, Scheduled Discussion, Status, Latest Remark). The **W / FT / M register PDFs** use the
-Task Report layout with the review frequency and allocated Monday next to the task.
+**Monday Discussion Agenda** (website and PDF): only the tasks allocated to the selected Monday, in
+12 columns (S.N., Date, Review Frequency, Allocated Monday, Task, Coordinator Officer, Other
+Officers, Action Plan, Execution Date (TDC), Status, DRM Remark / File, Latest BO Remark / File),
+sorted by date, newest first, with S.N. numbered in that order. The PDF is landscape with the
+meeting date in the heading and repeated column headings. The **W / FT / M register PDFs** use the
+Task Report layout with the review frequency and allocated Monday next to the task. The Tasks
+page PDF and its status filters are unchanged.
 
 ### API (admin only)
 
@@ -157,7 +174,8 @@ Task Report layout with the review frequency and allocated Monday next to the ta
 | POST   | `/api/meetings/:date/finalize` / `reopen` | Freeze / unfreeze a Monday's agenda |
 | POST   | `/api/meetings/:date/items/:taskId/outcome` | `{ outcome: "DISCUSSED" | "PENDING" }` |
 | GET    | `/api/meetings/:date/export?format=pdf|xlsx|csv` | Agenda download |
-| PATCH  | `/api/schedule/tasks/:id/cycle` | `{ cycle, monthlyMondayOrdinal? (1-5), fortnightAnchor? (Monday) }` |
+| PATCH  | `/api/schedule/tasks/:id/cycle` | `{ cycle, monthlyMondayOrdinal? (1-5), fortnightAnchor? (Monday), allocatedMonday? (Monday, Next Month / Flexible) }` |
+| POST   | `/api/schedule/tasks/:id/important` | `{ important: boolean }` |
 | POST   | `/api/schedule/cycle` | Same, for many tasks: `{ taskIds, cycle }` |
 | POST   | `/api/schedule/tasks/:id/reschedule` | `{ toDate, fromDate?, reason? }` |
 | GET    | `/api/schedule/tasks/:id/history` | Scheduling history |

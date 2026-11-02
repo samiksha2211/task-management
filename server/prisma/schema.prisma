@@ -69,6 +69,9 @@ model Task {
   monthlyMondayOrdinal       Int?
   // FORTNIGHTLY tasks: a Monday the alternate-week cycle runs from.
   fortnightAnchor            DateTime?            @db.Date
+  // One-time frequencies (Next Monday / Next Month / Flexible): the Monday
+  // the task is allocated to.
+  allocatedMonday            DateTime?            @db.Date
   lastDiscussedAt            DateTime?            @db.Date
   nextDiscussionDate         DateTime?            @db.Date
   // The date the frequency rule had produced before a deferral / bring-forward.
@@ -168,9 +171,14 @@ model TaskScheduleEvent {
 }
 
 enum DiscussionFrequency {
+  // Repeating
   WEEKLY
   FORTNIGHTLY
   MONTHLY
+  // One-time: discussed on allocatedMonday only
+  NEXT_MONDAY
+  NEXT_MONTH
+  FLEXIBLE
 }
 
 enum ScheduleState {
@@ -318,6 +326,7 @@ enum Role {
 
 enum TaskStatus {
   PENDING
+  RUNNING
   COMPLETED
   OVERDUE
 }

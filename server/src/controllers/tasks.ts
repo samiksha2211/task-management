@@ -27,14 +27,16 @@ import { validate } from "../lib/validate";
 import type { AuthRequest } from "../middleware/auth";
 import { prisma } from "../prisma";
 import { setTaskCycle } from "../services/scheduling/actions";
+import type { Cycle } from "../services/scheduling/config";
 import { withinWordLimit, wordLimitMessage } from "../lib/wordLimit";
 import { isISODate, isMonday } from "../services/scheduling/dates";
 import { syncUpcomingMeetings, TX_OPTIONS } from "../services/scheduling/repository";
 
-const statusInput = z.enum(["Pending", "Completed", "pending", "completed"]);
+const statusInput = z.enum(["Pending", "Running", "Completed", "pending", "running", "completed"]);
 
 function normalizeStatus(value: z.infer<typeof statusInput>): TaskStatus {
-  return value.toLowerCase() === "completed" ? "COMPLETED" : "PENDING";
+  const v = value.toLowerCase();
+  return v === "completed" ? "COMPLETED" : v === "running" ? "RUNNING" : "PENDING";
 }
 
 const taskFields = {
@@ -63,7 +65,10 @@ const taskFields = {
   attachments: z.array(attachmentInputSchema).max(20).optional(),
 
   // Monday meeting scheduling
-  discussionFrequency: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY"]).optional().nullable(),
+  discussionFrequency: z
+    .enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY", "NEXT_MONDAY", "NEXT_MONTH", "FLEXIBLE"])
+    .optional()
+    .nullable(),
   // M: allocated Monday of the month (1-5). FT: a Monday the cycle runs from.
   monthlyMondayOrdinal: z.number().int().min(1).max(5).optional().nullable(),
   fortnightAnchor: z
@@ -71,19 +76,27 @@ const taskFields = {
     .refine((v) => isISODate(v) && isMonday(v), "must be a Monday (YYYY-MM-DD)")
     .optional()
     .nullable(),
+  // Next Month / Flexible Date: the Monday chosen by the DRM.
+  allocatedMonday: z
+    .string()
+    .refine((v) => isISODate(v) && isMonday(v), "must be a Monday (YYYY-MM-DD)")
+    .optional()
+    .nullable(),
 };
 
 type ScheduleFields = {
-  discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | null;
+  discussionFrequency?: Cycle | null;
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: string | null;
+  allocatedMonday?: string | null;
 };
 
 function hasScheduleFields(body: ScheduleFields): boolean {
   return (
     body.discussionFrequency !== undefined ||
     body.monthlyMondayOrdinal !== undefined ||
-    body.fortnightAnchor !== undefined
+    body.fortnightAnchor !== undefined ||
+    body.allocatedMonday !== undefined
   );
 }
 
@@ -168,6 +181,8 @@ function statusFilterToWhere(status?: string): Prisma.TaskWhereInput {
       return { status: "PENDING", dueDate: { lt: todayUTCStart() } };
     case "pending":
       return { status: "PENDING", dueDate: { gte: todayUTCStart() } };
+    case "running":
+      return { status: "RUNNING" };
     case "completed":
       return { status: "COMPLETED" };
     default:
@@ -216,7 +231,7 @@ async function applyScheduleFields(taskId: string, body: ScheduleFields, userId:
       tx,
       current,
       cycle,
-      { monthlyMondayOrdinal: body.monthlyMondayOrdinal, fortnightAnchor: body.fortnightAnchor },
+      { monthlyMondayOrdinal: body.monthlyMondayOrdinal, fortnightAnchor: body.fortnightAnchor, allocatedMonday: body.allocatedMonday },
       userId
     );
     await syncUpcomingMeetings(tx);

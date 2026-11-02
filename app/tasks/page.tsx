@@ -15,7 +15,7 @@ export default async function TasksPage({
   const rawStatus = Array.isArray(params.status) ? params.status[0] : params.status;
   const initialStatus =
     rawStatus &&
-    ["pending", "completed", "overdue", "pending_overdue"].includes(rawStatus.toLowerCase())
+    ["pending", "running", "completed", "overdue", "pending_overdue"].includes(rawStatus.toLowerCase())
       ? rawStatus.toLowerCase()
       : "all";
 

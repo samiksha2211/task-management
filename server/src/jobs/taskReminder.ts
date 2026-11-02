@@ -31,7 +31,8 @@ export async function runTaskReminders() {
   try {
     const tasks = await prisma.task.findMany({
       where: {
-        status: "PENDING",
+        // Running tasks keep their regular reminders.
+        status: { in: ["PENDING", "RUNNING"] },
         deletedAt: null,
       },
       include: {
@@ -58,13 +59,13 @@ export async function runTaskReminders() {
 
       let message: string | null = null;
 
-      // 1. Overdue -> daily SMS
-      if (daysLeft < 0) {
+      // 1. Overdue -> daily SMS (a Running task is never called overdue)
+      if (daysLeft < 0 && task.status === "PENDING") {
         message = overdueSms(task.title, dueDate);
       }
 
       // 2. Due today / within next 3 days -> daily SMS
-      else if (daysLeft <= 3) {
+      else if (daysLeft >= 0 && daysLeft <= 3) {
         message = dueSms(
           task.title,
           dueDate,

@@ -8,7 +8,7 @@ import { applyPatch, today, toSchedulable, type Tx } from "./repository";
 
 /**
  * Set, change or clear a task's review frequency, allocated Monday (M) or
- * fortnightly start Monday (FT). Does nothing if nothing changed.
+ * fortnightly start Monday (FT), or one-time Monday. Does nothing if nothing changed.
  */
 export async function setTaskCycle(
   tx: Tx,
@@ -22,6 +22,7 @@ export async function setTaskCycle(
     patch.discussionFrequency === task.discussionFrequency &&
     (patch.monthlyMondayOrdinal ?? null) === (task.monthlyMondayOrdinal ?? null) &&
     (patch.fortnightAnchor ?? null) === toISODateOrNull(task.fortnightAnchor) &&
+    (patch.allocatedMonday ?? null) === toISODateOrNull(task.allocatedMonday) &&
     task.scheduleState === "SCHEDULED";
   if (unchanged) return task;
 

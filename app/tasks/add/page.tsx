@@ -123,7 +123,7 @@ export default function AddTaskPage() {
     additionalDesignations.filter(
       (d) => d !== designation
       ),
-      status: status as "Pending" | "Completed",
+      status: status as "Pending" | "Running" | "Completed",
       ...scheduleBody(schedule),
     };
 
@@ -300,6 +300,7 @@ const additionalOfficerIds = additionalOfficerData.map(
                     onChange={(e) => setStatus(e.target.value)}
                   >
                     <option>Pending</option>
+                    <option>Running</option>
                     <option>Completed</option>
                   </select>
                 </div>
