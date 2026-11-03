@@ -441,7 +441,9 @@
     letter-spacing:.02em;
 }
 .review-code.code-W { background:#e8f1fb; color:#17457b; }
-.review-code.code-FT { background:#fff4e5; color:#8a4b00; }
+.review-code.code-FT,
+.review-code.code-F1 { background:#fff4e5; color:#8a4b00; }
+.review-code.code-F2 { background:#fdeee0; color:#9a3412; }
 .review-code.code-M { background:#efe9fb; color:#5b2ca0; }
 .review-allocated {
     display:block;
@@ -451,7 +453,9 @@
     line-height:1.3;
 }
 html[data-theme="dark"] .review-code.code-W { background:#172a46; color:#93c5fd; }
-html[data-theme="dark"] .review-code.code-FT { background:#3b2a10; color:#fbbf24; }
+html[data-theme="dark"] .review-code.code-FT,
+html[data-theme="dark"] .review-code.code-F1,
+html[data-theme="dark"] .review-code.code-F2 { background:#3b2a10; color:#fbbf24; }
 html[data-theme="dark"] .review-code.code-M { background:#2a1d45; color:#c4b5fd; }
 html[data-theme="dark"] .review-allocated { color:#94a3b8; }
 

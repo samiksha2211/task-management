@@ -3,10 +3,13 @@
 // Pure functions over plain data. The website, the agenda, and every PDF use
 // these same functions, so they always agree.
 //
-// Review frequencies (shown as W / FT / M):
+// Review frequencies (shown as W / F1 / F2 / M):
 //   W  (WEEKLY)      every Monday.
-//   FT (FORTNIGHTLY) every other Monday, counted from the task's start Monday
-//                    (fortnightAnchor). The cycle runs straight across months.
+//   F1 (FORTNIGHTLY, group 1) the 1st and 3rd Monday of every month.
+//   F2 (FORTNIGHTLY, group 2) the 2nd and 4th Monday of every month.
+//                    A 5th Monday has no F1 / F2 tasks. The group is stored in
+//                    monthlyMondayOrdinal (1 or 2); older FT tasks without one
+//                    take it from their start Monday (fortnightAnchor).
 //   M  (MONTHLY)     the allocated Monday of every month (1st-5th). In a month
 //                    with no 5th Monday, a 5th-Monday task is on the last one.
 //
@@ -54,7 +57,7 @@ export type AgendaOutcomeValue = "PENDING" | "DISCUSSED" | "NOT_DISCUSSED" | "DE
 
 export const REVIEW_CODE: Record<Cycle, string> = {
   WEEKLY: "W",
-  FORTNIGHTLY: "FT",
+  FORTNIGHTLY: "F1 / F2",
   MONTHLY: "M",
   NEXT_MONDAY: "Next Monday",
   NEXT_MONTH: "Next Month",
@@ -69,9 +72,9 @@ export interface SchedulableTask {
   /** Day the task was created (meeting time zone). It is not on agendas before then. */
   createdOn?: ISODate | null;
   frequency: Cycle | null;
-  /** MONTHLY: allocated Monday of the month, 1-5 (null = 1st). */
+  /** MONTHLY: allocated Monday of the month, 1-5 (null = 1st). FORTNIGHTLY: 1 = F1, 2 = F2. */
   monthlyMondayOrdinal: number | null;
-  /** FORTNIGHTLY: a Monday the alternate-week cycle runs from. */
+  /** FORTNIGHTLY (older tasks only): start Monday, used when no F1 / F2 group is stored. */
   fortnightAnchor: ISODate | null;
   /** One-time frequencies: the Monday the task is allocated to. */
   allocatedDate: ISODate | null;
@@ -132,6 +135,27 @@ function clampOrdinal(n: number | null | undefined): number {
   return Math.min(Math.max(Math.trunc(n ?? 1), 1), 5);
 }
 
+export type FortnightGroup = 1 | 2;
+
+/** F1 (1st and 3rd Mondays) or F2 (2nd and 4th Mondays) of a fortnightly task. */
+export function fortnightGroup(task: Pick<SchedulableTask, "monthlyMondayOrdinal" | "fortnightAnchor">): FortnightGroup {
+  if (task.monthlyMondayOrdinal === 1 || task.monthlyMondayOrdinal === 2) return task.monthlyMondayOrdinal;
+  // Older tasks: the group whose Mondays include their start Monday.
+  if (task.fortnightAnchor) return mondayPosition(mondayOnOrAfter(task.fortnightAnchor)) % 2 === 1 ? 1 : 2;
+  return 1;
+}
+
+export const FORTNIGHT_MONDAYS: Record<FortnightGroup, [number, number]> = { 1: [1, 3], 2: [2, 4] };
+
+/** Short code shown everywhere: W, F1, F2, M, or the one-time frequency's name. */
+export function reviewCode(
+  task: Pick<SchedulableTask, "frequency" | "monthlyMondayOrdinal" | "fortnightAnchor">
+): string | null {
+  if (!task.frequency) return null;
+  if (task.frequency === "FORTNIGHTLY") return `F${fortnightGroup(task)}`;
+  return REVIEW_CODE[task.frequency];
+}
+
 // ---------------------------------------------------------------------------
 // The calendar
 
@@ -145,11 +169,8 @@ export function occursOn(
   switch (task.frequency) {
     case "WEEKLY":
       return true;
-    case "FORTNIGHTLY": {
-      if (!task.fortnightAnchor) return false;
-      const days = diffDays(date, mondayOnOrAfter(task.fortnightAnchor));
-      return ((days % 14) + 14) % 14 === 0;
-    }
+    case "FORTNIGHTLY":
+      return FORTNIGHT_MONDAYS[fortnightGroup(task)].includes(mondayPosition(date));
     case "MONTHLY": {
       const d = fromISODate(date);
       return nthMondayOfMonth(d.getUTCFullYear(), d.getUTCMonth() + 1, clampOrdinal(task.monthlyMondayOrdinal)) === date;
@@ -195,7 +216,7 @@ export function nextRegularDate(task: SchedulableTask, from: ISODate): ISODate |
 /**
  * "Allocated Monday" shown next to each task.
  *   W  -> "Every Monday"
- *   FT -> where its next review date falls, e.g. "2nd Monday · alternate weeks"
+ *   F1 -> "1st & 3rd Monday", F2 -> "2nd & 4th Monday"
  *   M  -> its fixed Monday, e.g. "3rd Monday"
  *   one-time -> its date, e.g. "9 Nov 2026"
  */
@@ -207,8 +228,8 @@ export function allocatedMonday(task: SchedulableTask, from: ISODate): string {
     case "MONTHLY":
       return ordinalLabel(clampOrdinal(task.monthlyMondayOrdinal));
     case "FORTNIGHTLY": {
-      const next = nextRegularDate(task, from);
-      return next ? `${ordinalLabel(mondayPosition(next))} · alternate weeks` : "Alternate weeks";
+      const [a, b] = FORTNIGHT_MONDAYS[fortnightGroup(task)];
+      return `${ORDINAL[a - 1]} & ${ORDINAL[b - 1]} Monday`;
     }
     default:
       return "";
@@ -221,6 +242,8 @@ export function allocatedMonday(task: SchedulableTask, from: ISODate): string {
 export interface CycleOptions {
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: ISODate | null;
+  /** FORTNIGHTLY: 1 = F1 (1st & 3rd Mondays), 2 = F2 (2nd & 4th Mondays). */
+  fortnightGroup?: FortnightGroup | null;
   /** NEXT_MONTH / FLEXIBLE: the Monday chosen by the DRM. */
   allocatedMonday?: ISODate | null;
 }
@@ -307,15 +330,19 @@ export function planCycleChange(
       scheduleReason: `M: ${ordinalLabel(ordinal)} of every month`,
     };
   }
-  const anchor = options.fortnightAnchor ?? (task.frequency === "FORTNIGHTLY" ? task.fortnightAnchor : null) ?? mondayOnOrAfter(today);
-  if (!isMonday(anchor)) throw new SchedulingError("The fortnightly start date must be a Monday.");
+  // FORTNIGHTLY: F1 or F2. The Mondays follow automatically.
+  if (options.fortnightGroup != null && options.fortnightGroup !== 1 && options.fortnightGroup !== 2) {
+    throw new SchedulingError("Fortnightly tasks are F1 or F2.");
+  }
+  const group: FortnightGroup = options.fortnightGroup ?? (task.frequency === "FORTNIGHTLY" ? fortnightGroup(task) : 1);
+  const [a, b] = FORTNIGHT_MONDAYS[group];
   return {
     ...base,
     discussionFrequency: cycle,
-    monthlyMondayOrdinal: null,
-    fortnightAnchor: anchor,
+    monthlyMondayOrdinal: group,
+    fortnightAnchor: null,
     allocatedMonday: null,
-    scheduleReason: `FT: alternate Mondays from ${fmt(anchor)}`,
+    scheduleReason: `F${group}: ${ORDINAL[a - 1]} and ${ORDINAL[b - 1]} Monday of every month`,
   };
 }
 
@@ -415,7 +442,7 @@ function inclusionReason(task: SchedulableTask, meetingDate: ISODate): string {
   if (hasReschedule(task) && task.nextDiscussionDate === meetingDate && task.scheduleReason) return task.scheduleReason;
   if (!task.frequency) return "Scheduled";
   if (isOneTime(task.frequency)) return `${CYCLE_LABEL[task.frequency]}: ${allocatedMonday(task, meetingDate)}`;
-  return `${REVIEW_CODE[task.frequency]}: ${allocatedMonday(task, meetingDate)}`;
+  return `${reviewCode(task)}: ${allocatedMonday(task, meetingDate)}`;
 }
 
 const SECTION_ORDER: AgendaSectionValue[] = ["WEEKLY", "FORTNIGHTLY", "MONTHLY", "NEW", "URGENT", "BLOCKED_OVERDUE"];

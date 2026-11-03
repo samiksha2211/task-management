@@ -612,3 +612,10 @@ html[data-theme="dark"] .mtg-table tbody tr.is-important td {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* Agenda: show long Action Plans and remarks in full */
+.mtg-agenda-table .mtg-remarks {
+  max-height: none;
+  overflow: visible;
+  min-width: 200px;
+}

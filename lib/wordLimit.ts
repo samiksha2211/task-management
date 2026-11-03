@@ -1,8 +1,11 @@
-// Word limits for Action Plan and BO Remarks (the server checks the same rule).
+// Word limits (the server checks the same rule).
 
-export const WORD_LIMIT = 60;
-/** From this many words the counter turns amber. */
-export const WORD_WARNING = 50;
+/** Action Plan (DRM and BO) and BO Remarks: room for detailed railway updates. */
+export const WORD_LIMIT = 300;
+/** DRM Remarks. */
+export const DRM_REMARK_LIMIT = 150;
+/** From this share of the limit the counter turns amber. */
+export const WORD_WARNING_SHARE = 0.9;
 
 /** Words separated by whitespace (several spaces or line breaks count once). */
 export function countWords(text: string | null | undefined): number {

@@ -27,8 +27,8 @@ import { validate } from "../lib/validate";
 import type { AuthRequest } from "../middleware/auth";
 import { prisma } from "../prisma";
 import { setTaskCycle } from "../services/scheduling/actions";
-import type { Cycle } from "../services/scheduling/config";
-import { withinWordLimit, wordLimitMessage } from "../lib/wordLimit";
+import { CYCLE_INPUTS, parseCycleInput, type CycleInput } from "../services/scheduling/config";
+import { DRM_REMARK_LIMIT, withinWordLimit, wordLimitMessage } from "../lib/wordLimit";
 import { isISODate, isMonday } from "../services/scheduling/dates";
 import { syncUpcomingMeetings, TX_OPTIONS } from "../services/scheduling/repository";
 
@@ -65,10 +65,8 @@ const taskFields = {
   attachments: z.array(attachmentInputSchema).max(20).optional(),
 
   // Monday meeting scheduling
-  discussionFrequency: z
-    .enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY", "NEXT_MONDAY", "NEXT_MONTH", "FLEXIBLE"])
-    .optional()
-    .nullable(),
+  // W, F1, F2, M (FORTNIGHTLY keeps a task's current F1 / F2), or one-time.
+  discussionFrequency: z.enum(CYCLE_INPUTS).optional().nullable(),
   // M: allocated Monday of the month (1-5). FT: a Monday the cycle runs from.
   monthlyMondayOrdinal: z.number().int().min(1).max(5).optional().nullable(),
   fortnightAnchor: z
@@ -85,7 +83,7 @@ const taskFields = {
 };
 
 type ScheduleFields = {
-  discussionFrequency?: Cycle | null;
+  discussionFrequency?: CycleInput | null;
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: string | null;
   allocatedMonday?: string | null;
@@ -226,12 +224,18 @@ function buildListWhere(q: ListQuery): Prisma.TaskWhereInput {
 async function applyScheduleFields(taskId: string, body: ScheduleFields, userId: string | null) {
   await prisma.$transaction(async (tx) => {
     const current = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
-    const cycle = body.discussionFrequency !== undefined ? body.discussionFrequency : current.discussionFrequency;
+    const { cycle, fortnightGroup } =
+      body.discussionFrequency !== undefined ? parseCycleInput(body.discussionFrequency) : { cycle: current.discussionFrequency };
     await setTaskCycle(
       tx,
       current,
       cycle,
-      { monthlyMondayOrdinal: body.monthlyMondayOrdinal, fortnightAnchor: body.fortnightAnchor, allocatedMonday: body.allocatedMonday },
+      {
+        monthlyMondayOrdinal: body.monthlyMondayOrdinal,
+        fortnightAnchor: body.fortnightAnchor,
+        fortnightGroup,
+        allocatedMonday: body.allocatedMonday,
+      },
       userId
     );
     await syncUpcomingMeetings(tx);
@@ -367,6 +371,11 @@ export async function getTask(req: AuthRequest, res: Response): Promise<void> {
 export async function createTask(req: AuthRequest, res: Response): Promise<void> {
   const body = validate(createSchema, req.body);
 
+  if (!withinWordLimit(body.remarks, DRM_REMARK_LIMIT)) {
+    res.status(400).json({ error: wordLimitMessage("DRM Remark", DRM_REMARK_LIMIT) });
+    return;
+  }
+
   if (body.clientRequestId) {
     const existing = await prisma.task.findUnique({
       where: { clientRequestId: body.clientRequestId },
@@ -496,6 +505,16 @@ export async function updateTask(req: AuthRequest, res: Response): Promise<void>
   });
   if (!existing) {
     res.status(404).json({ error: "Task not found" });
+    return;
+  }
+
+  // Older, longer DRM remarks only need shortening when they are edited.
+  if (
+    body.remarks !== undefined &&
+    (body.remarks ?? "").trim() !== (existing.remarks ?? "").trim() &&
+    !withinWordLimit(body.remarks, DRM_REMARK_LIMIT)
+  ) {
+    res.status(400).json({ error: wordLimitMessage("DRM Remark", DRM_REMARK_LIMIT) });
     return;
   }
 

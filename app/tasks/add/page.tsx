@@ -15,7 +15,7 @@ import DesignationAutocomplete from "@/components/DesignationAutocomplete";
 import MultiDesignationSelect from "@/components/MultiDesignationSelect";
 import { PendingAttachmentsField } from "@/components/attachments/Attachments";
 import WordCount from "@/components/WordCount";
-import { WORD_LIMIT, countWords, overWordLimit } from "@/lib/wordLimit";
+import { DRM_REMARK_LIMIT, WORD_LIMIT, countWords, overWordLimit } from "@/lib/wordLimit";
 import { EMPTY_PENDING, hasPending, uploadPending, type PendingAttachments } from "@/lib/attachments";
 import ScheduleFields, {
   EMPTY_SCHEDULE,
@@ -94,7 +94,7 @@ export default function AddTaskPage() {
     });
   };
 
-  // All action plan lines together; the 60-word limit applies to the whole plan.
+  // All action plan lines together; the word limit applies to the whole plan.
   const actionPlanText = actionPlans.map((plan) => plan.trim()).filter(Boolean).join("\n");
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -107,6 +107,11 @@ export default function AddTaskPage() {
 
     if (overWordLimit(actionPlanText)) {
       alert(`Action Plan can be at most ${WORD_LIMIT} words (currently ${countWords(actionPlanText)}). Please shorten it.`);
+      return;
+    }
+
+    if (overWordLimit(remarks, DRM_REMARK_LIMIT)) {
+      alert(`DRM Remarks can be at most ${DRM_REMARK_LIMIT} words (currently ${countWords(remarks)}). Please shorten it.`);
       return;
     }
 
@@ -390,6 +395,7 @@ const additionalOfficerIds = additionalOfficerData.map(
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
                   />
+                  <WordCount text={remarks} limit={DRM_REMARK_LIMIT} />
                 </div>
 
                 <div className="form-group">

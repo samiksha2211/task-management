@@ -14,13 +14,14 @@ import {
 import { AttachmentManager, PendingAttachmentsField } from "@/components/attachments/Attachments";
 import DesignationAutocomplete from "@/components/DesignationAutocomplete";
 import WordCount from "@/components/WordCount";
-import { WORD_LIMIT, countWords, overWordLimit } from "@/lib/wordLimit";
+import { DRM_REMARK_LIMIT, WORD_LIMIT, countWords, overWordLimit } from "@/lib/wordLimit";
 import MultiDesignationSelect from "@/components/MultiDesignationSelect";
 import ScheduleFields, {
   EMPTY_SCHEDULE,
   scheduleBody,
   type ScheduleValue,
 } from "@/components/meetings/ScheduleFields";
+import { choiceOf } from "@/lib/meetings";
 
 export default function TaskEditForm({ id }: { id?: string }) {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function TaskEditForm({ id }: { id?: string }) {
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
   const [remarks, setRemarks] = useState("");
+  const [initialRemarks, setInitialRemarks] = useState("");
   const [actionPlans, setActionPlans] = useState<string[]>([""]);
   const [actionPlanTdc, setActionPlanTdc] = useState("");
   // Saved action plan, to tell whether it was edited.
@@ -95,10 +97,10 @@ export default function TaskEditForm({ id }: { id?: string }) {
         setDueDate(t.dueDate.slice(0, 10));
         setDescription(t.description ?? "");
         setRemarks(t.remarks ?? "");
+        setInitialRemarks(t.remarks ?? "");
         const loadedSchedule: ScheduleValue = {
-          cycle: t.discussionFrequency ?? "",
-          monthlyMondayOrdinal: t.monthlyMondayOrdinal ?? 1,
-          fortnightAnchor: t.fortnightAnchor ?? "",
+          cycle: choiceOf(t),
+          monthlyMondayOrdinal: t.discussionFrequency === "MONTHLY" ? t.monthlyMondayOrdinal ?? 1 : 1,
           allocatedMonday: t.allocatedMondayDate ?? "",
         };
         setSchedule(loadedSchedule);
@@ -235,13 +237,16 @@ const removeBoRemark = async (index: number) => {
     );
   }
   };
-  // All action plan lines together; the 60-word limit applies to the whole plan.
+  // All action plan lines together; the word limit applies to the whole plan.
   const actionPlanText = actionPlans.map((plan) => plan.trim()).filter(Boolean).join("\n");
   const actionPlanChanged = actionPlanText !== (initialActionPlan ?? "").trim();
   const remarkChanged = (item: BoRemarkItem) => item.remark.trim() !== (item.originalRemark ?? "").trim();
   const wordLimitProblem = (): string | null => {
     if (actionPlanChanged && overWordLimit(actionPlanText)) {
       return `Action Plan can be at most ${WORD_LIMIT} words (currently ${countWords(actionPlanText)}).`;
+    }
+    if (remarks.trim() !== initialRemarks.trim() && overWordLimit(remarks, DRM_REMARK_LIMIT)) {
+      return `DRM Remarks can be at most ${DRM_REMARK_LIMIT} words (currently ${countWords(remarks)}).`;
     }
     const bo = boRemarks.findIndex((item) => remarkChanged(item) && overWordLimit(item.remark));
     if (bo >= 0) {
@@ -313,7 +318,6 @@ const removeBoRemark = async (index: number) => {
     const scheduleChanges =
       nextSchedule.discussionFrequency !== prevSchedule.discussionFrequency ||
       nextSchedule.monthlyMondayOrdinal !== prevSchedule.monthlyMondayOrdinal ||
-      nextSchedule.fortnightAnchor !== prevSchedule.fortnightAnchor ||
       nextSchedule.allocatedMonday !== prevSchedule.allocatedMonday
         ? nextSchedule
         : {};
@@ -599,7 +603,7 @@ for (const item of boRemarks) {
             ))}
             <WordCount text={actionPlanText} />
             {!actionPlanChanged && overWordLimit(actionPlanText) && (
-              <span className="form-hint">Saved before the 60-word limit; it only needs shortening if you edit it.</span>
+              <span className="form-hint">Saved before the word limit; it only needs shortening if you edit it.</span>
             )}
             <button type="button" onClick={addActionPlan}>
               + Add Action Plan
@@ -626,6 +630,7 @@ for (const item of boRemarks) {
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
             />
+            <WordCount text={remarks} limit={DRM_REMARK_LIMIT} />
           </div>
 
           <div className="form-group">

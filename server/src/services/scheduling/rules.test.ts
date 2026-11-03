@@ -4,6 +4,8 @@ import { addDays, mondayOnOrAfter, nthMondayOfMonth, todayISO } from "./dates";
 import {
   allocatedMonday,
   buildAgenda,
+  fortnightGroup,
+  reviewCode,
   isDueOn,
   mondayPosition,
   nextDueDate,
@@ -87,28 +89,56 @@ describe("W - weekly", () => {
   });
 });
 
-describe("FT - fortnightly", () => {
-  const ft = () => task({ frequency: "FORTNIGHTLY", fortnightAnchor: "2026-10-26" });
+describe("F1 / F2 - fortnightly", () => {
+  const f1 = () => task({ frequency: "FORTNIGHTLY", monthlyMondayOrdinal: 1 });
+  const f2 = () => task({ frequency: "FORTNIGHTLY", monthlyMondayOrdinal: 2 });
 
-  test("alternate Mondays only, across month and year boundaries", () => {
-    assert.deepEqual(dueMondays(ft(), "2026-10-26", "2027-01-31"), [
-      "2026-10-26", "2026-11-09", "2026-11-23", "2026-12-07", "2026-12-21", "2027-01-04", "2027-01-18",
+  test("F1: 1st and 3rd Monday of every month, across month and year boundaries", () => {
+    assert.deepEqual(dueMondays(f1(), "2026-11-01", "2027-02-28"), [
+      "2026-11-02", "2026-11-16", "2026-12-07", "2026-12-21", "2027-01-04", "2027-01-18", "2027-02-01", "2027-02-15",
     ]);
   });
 
-  test("the other alternate week is a separate set of Mondays", () => {
-    const b = task({ frequency: "FORTNIGHTLY", fortnightAnchor: "2026-11-02" });
-    assert.deepEqual(dueMondays(b, "2026-10-26", "2026-11-30"), ["2026-11-02", "2026-11-16", "2026-11-30"]);
+  test("F2: 2nd and 4th Monday of every month", () => {
+    assert.deepEqual(dueMondays(f2(), "2026-11-01", "2027-02-28"), [
+      "2026-11-09", "2026-11-23", "2026-12-14", "2026-12-28", "2027-01-11", "2027-01-25", "2027-02-08", "2027-02-22",
+    ]);
   });
 
-  test("allocated Monday shows where the next review falls", () => {
-    assert.equal(allocatedMonday(ft(), "2026-10-30"), "2nd Monday · alternate weeks");
-    assert.equal(nextDueDate(ft(), "2026-10-30"), "2026-11-09");
+  test("a 5th Monday has neither F1 nor F2; every month has exactly two of each", () => {
+    // November 2026 and March 2027 have five Mondays (30 Nov, 29 Mar).
+    for (const fifth of ["2026-11-30", "2027-03-29"]) {
+      assert.equal(isDueOn(f1(), fifth), false);
+      assert.equal(isDueOn(f2(), fifth), false);
+    }
+    for (let m = 1; m <= 24; m++) {
+      const y = 2026 + Math.floor((m - 1) / 12);
+      const month = String(((m - 1) % 12) + 1).padStart(2, "0");
+      const end = addDays(`${y}-${month}-28`, 3).slice(0, 7) === `${y}-${month}` ? addDays(`${y}-${month}-28`, 3) : `${y}-${month}-31`;
+      const inMonth = (t: SchedulableTask) => dueMondays(t, `${y}-${month}-01`, end).filter((d) => d.startsWith(`${y}-${month}`));
+      assert.equal(inMonth(f1()).length, 2, `F1 in ${y}-${month}`);
+      assert.equal(inMonth(f2()).length, 2, `F2 in ${y}-${month}`);
+      assert.equal(new Set([...inMonth(f1()), ...inMonth(f2())]).size, 4, "F1 and F2 never share a Monday");
+    }
   });
 
   test("works across a leap day", () => {
-    const t = task({ frequency: "FORTNIGHTLY", fortnightAnchor: "2028-02-21" });
-    assert.deepEqual(dueMondays(t, "2028-02-01", "2028-03-31"), ["2028-02-07", "2028-02-21", "2028-03-06", "2028-03-20"]);
+    assert.deepEqual(dueMondays(f1(), "2028-02-01", "2028-03-31"), ["2028-02-07", "2028-02-21", "2028-03-06", "2028-03-20"]);
+  });
+
+  test("allocated Monday and review code", () => {
+    assert.equal(allocatedMonday(f1(), "2026-10-30"), "1st & 3rd Monday");
+    assert.equal(allocatedMonday(f2(), "2026-10-30"), "2nd & 4th Monday");
+    assert.equal(reviewCode(f1()), "F1");
+    assert.equal(reviewCode(f2()), "F2");
+    assert.equal(nextDueDate(f2(), "2026-11-24"), "2026-12-14", "skips the 5th Monday");
+  });
+
+  test("older FT tasks take F1 / F2 from their start Monday", () => {
+    assert.equal(fortnightGroup(task({ frequency: "FORTNIGHTLY", fortnightAnchor: "2026-11-02" })), 1); // 1st Monday
+    assert.equal(fortnightGroup(task({ frequency: "FORTNIGHTLY", fortnightAnchor: "2026-11-09" })), 2); // 2nd Monday
+    assert.equal(fortnightGroup(task({ frequency: "FORTNIGHTLY", fortnightAnchor: "2026-11-16" })), 1); // 3rd Monday
+    assert.equal(fortnightGroup(task({ frequency: "FORTNIGHTLY" })), 1);
   });
 });
 
@@ -188,24 +218,29 @@ describe("agenda for a Monday", () => {
 });
 
 describe("discussing does not change the calendar", () => {
-  test("a fortnightly task stays on its alternate weeks", () => {
-    let t = task({ frequency: "FORTNIGHTLY", fortnightAnchor: "2026-11-02" });
+  test("an F1 task stays on its 1st and 3rd Mondays", () => {
+    let t = task({ frequency: "FORTNIGHTLY", monthlyMondayOrdinal: 1 });
     t = apply(t, planDiscussed(t, "2026-11-02"));
     assert.equal(t.lastDiscussedAt, "2026-11-02");
-    assert.deepEqual(dueMondays(t, "2026-11-03", "2026-11-30"), ["2026-11-16", "2026-11-30"]);
+    assert.deepEqual(dueMondays(t, "2026-11-03", "2026-12-31"), ["2026-11-16", "2026-12-07", "2026-12-21"]);
   });
 });
 
 describe("changing the review frequency", () => {
   const today = "2026-10-30"; // a Friday; next Monday is 2 Nov
 
-  test("W -> FT starts on the coming Monday unless a start is chosen", () => {
+  test("W -> F1 / F2: the Mondays are allocated automatically", () => {
     const w = task({ frequency: "WEEKLY" });
-    const ft = apply(w, planCycleChange(w, "FORTNIGHTLY", {}, today));
-    assert.equal(ft.fortnightAnchor, "2026-11-02");
-    assert.deepEqual(dueMondays(ft, "2026-11-01", "2026-11-30"), ["2026-11-02", "2026-11-16", "2026-11-30"]);
-    const ft2 = apply(w, planCycleChange(w, "FORTNIGHTLY", { fortnightAnchor: "2026-11-09" }, today));
-    assert.deepEqual(dueMondays(ft2, "2026-11-01", "2026-11-30"), ["2026-11-09", "2026-11-23"]);
+    const f1 = apply(w, planCycleChange(w, "FORTNIGHTLY", { fortnightGroup: 1 }, today));
+    assert.equal(f1.monthlyMondayOrdinal, 1);
+    assert.equal(f1.fortnightAnchor, null);
+    assert.deepEqual(dueMondays(f1, "2026-11-01", "2026-11-30"), ["2026-11-02", "2026-11-16"]);
+    const f2 = apply(f1, planCycleChange(f1, "FORTNIGHTLY", { fortnightGroup: 2 }, today));
+    assert.deepEqual(dueMondays(f2, "2026-11-01", "2026-11-30"), ["2026-11-09", "2026-11-23"]);
+    const kept = apply(f2, planCycleChange(f2, "FORTNIGHTLY", {}, today));
+    assert.equal(reviewCode(kept), "F2", "FORTNIGHTLY without a group keeps F1 / F2");
+    const m = apply(f2, planCycleChange(f2, "MONTHLY", { monthlyMondayOrdinal: 4 }, today));
+    assert.equal(m.monthlyMondayOrdinal, 4);
   });
 
   test("W -> M -> W", () => {
@@ -223,12 +258,12 @@ describe("changing the review frequency", () => {
     assert.deepEqual(dueMondays(m4, "2026-11-01", "2026-11-30"), ["2026-11-23"]);
   });
 
-  test("a change clears any reschedule; FT start must be a Monday", () => {
+  test("a change clears any reschedule; F1 / F2 only", () => {
     const t = task({ scheduleState: "DEFERRED", nextDiscussionDate: "2026-11-16", originalDiscussionDate: "2026-11-09" });
     const p = planCycleChange(t, "MONTHLY", {}, today);
     assert.equal(p.scheduleState, "SCHEDULED");
     assert.equal(p.nextDiscussionDate, null);
-    assert.throws(() => planCycleChange(t, "FORTNIGHTLY", { fortnightAnchor: "2026-11-03" }, today), SchedulingError);
+    assert.throws(() => planCycleChange(t, "FORTNIGHTLY", { fortnightGroup: 3 as 1 }, today), SchedulingError);
   });
 
   test("clearing the frequency takes the task off every agenda", () => {

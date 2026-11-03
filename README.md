@@ -127,8 +127,13 @@ by the website and every PDF:
 | Code | Frequency   | Due on |
 | ---- | ----------- | ------ |
 | W    | Weekly      | Every Monday |
-| FT   | Fortnightly | Every other Monday, counted from its start Monday (`fortnightAnchor`); runs across months |
+| F1   | Fortnightly | The 1st and 3rd Monday of every month |
+| F2   | Fortnightly | The 2nd and 4th Monday of every month |
 | M    | Monthly     | Its allocated Monday of every month, 1st–5th (`monthlyMondayOrdinal`); a 5th Monday falls back to the last Monday in four-Monday months |
+
+F1 / F2 Mondays are allocated automatically (no Monday to pick). A month's 5th Monday has no F1 / F2
+tasks. The group is stored in `monthlyMondayOrdinal` (1 = F1, 2 = F2); older fortnightly tasks
+without one take F1 or F2 from their start Monday (`fortnightAnchor`), so no data migration was needed.
 
 One-time frequencies: the task is discussed once, on its **Allocated Monday**
 (`Task.allocatedMonday`). This is a meeting date, not the Execution Date (TDC).
@@ -152,15 +157,17 @@ a task and puts it on the coming Monday's agenda (a task without a frequency bec
 - New tasks are W (weekly) by default and are first on the Monday they are created on, or the next one.
 - **Finalize agenda** freezes a Monday's list; tasks created afterwards go to the following Monday.
   **Reopen** makes it follow the calendar again. Viewing and PDF downloads never change anything.
-- Action Plan and BO Remarks are limited to 60 words each (live counter in the forms, checked by
-  the server; text is never shortened). Older longer text only needs shortening when it is edited.
+- Word limits: Action Plan and BO Remarks 300 words each, DRM Remarks 150 words (live counter in
+  the forms, checked by the server; text is never shortened). Older longer text only needs
+  shortening when it is edited. In PDFs, long text wraps inside its column, rows grow to fit, and
+  a long row continues on the next page ("contd.") under a repeated header.
 - `MEETING_TIME_ZONE` (default `Asia/Kolkata`) decides what "today" is.
 
 **Monday Discussion Agenda** (website and PDF): only the tasks allocated to the selected Monday, in
 12 columns (S.N., Date, Review Frequency, Allocated Monday, Task, Coordinator Officer, Other
 Officers, Action Plan, Execution Date (TDC), Status, DRM Remark / File, Latest BO Remark / File),
 sorted by date, newest first, with S.N. numbered in that order. The PDF is landscape with the
-meeting date in the heading and repeated column headings. The **W / FT / M register PDFs** use the
+meeting date in the heading and repeated column headings. The **W / F1-F2 / M register PDFs** use the
 Task Report layout with the review frequency and allocated Monday next to the task. The Tasks
 page PDF and its status filters are unchanged.
 
@@ -174,7 +181,7 @@ page PDF and its status filters are unchanged.
 | POST   | `/api/meetings/:date/finalize` / `reopen` | Freeze / unfreeze a Monday's agenda |
 | POST   | `/api/meetings/:date/items/:taskId/outcome` | `{ outcome: "DISCUSSED" | "PENDING" }` |
 | GET    | `/api/meetings/:date/export?format=pdf|xlsx|csv` | Agenda download |
-| PATCH  | `/api/schedule/tasks/:id/cycle` | `{ cycle, monthlyMondayOrdinal? (1-5), fortnightAnchor? (Monday), allocatedMonday? (Monday, Next Month / Flexible) }` |
+| PATCH  | `/api/schedule/tasks/:id/cycle` | `{ cycle (WEEKLY, F1, F2, MONTHLY, NEXT_MONDAY, NEXT_MONTH, FLEXIBLE), monthlyMondayOrdinal? (1-5, M), allocatedMonday? (Monday, Next Month / Flexible) }` |
 | POST   | `/api/schedule/tasks/:id/important` | `{ important: boolean }` |
 | POST   | `/api/schedule/cycle` | Same, for many tasks: `{ taskIds, cycle }` |
 | POST   | `/api/schedule/tasks/:id/reschedule` | `{ toDate, fromDate?, reason? }` |

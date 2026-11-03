@@ -1,4 +1,4 @@
-// New tasks default to W, finalized agendas are frozen, 60-word limits, and
+// New tasks default to W, finalized agendas are frozen, word limits, and
 // the meeting PDF, against a real PostgreSQL database (see testServer.ts).
 
 import assert from "node:assert/strict";
@@ -63,11 +63,11 @@ describe("new tasks", () => {
   });
 
   test("editing other fields never changes an existing task's frequency", async () => {
-    const ft = await createTask("Fortnightly task", { discussionFrequency: "FORTNIGHTLY", fortnightAnchor: following });
+    const ft = await createTask("Fortnightly task", { discussionFrequency: "F2" });
     const res = await t.api("PUT", `/api/tasks/${ft.json.task.id}`, { title: "Fortnightly task (renamed)", remarks: "Updated" });
     assert.equal(res.status, 200);
-    assert.equal(res.json.task.reviewCode, "FT");
-    assert.equal(res.json.task.fortnightAnchor, following);
+    assert.equal(res.json.task.reviewCode, "F2");
+    assert.equal(res.json.task.allocatedMonday, "2nd & 4th Monday");
   });
 });
 
@@ -111,29 +111,41 @@ describe("finalized agenda", () => {
   });
 });
 
-describe("60-word limits", () => {
-  test("Action Plan: 60 words saved, 61 rejected, text never shortened", async () => {
-    const ok = await createTask("Plan at limit", { actionPlan: words(60) });
+describe("word limits", () => {
+  test("Action Plan: 300 words saved, 301 rejected, text never shortened", async () => {
+    const ok = await createTask("Plan at limit", { actionPlan: words(300) });
     assert.equal(ok.status, 201);
-    assert.equal(ok.json.task.actionPlan, words(60));
-    const tooLong = await createTask("Plan too long", { actionPlan: words(61) });
+    assert.equal(ok.json.task.actionPlan, words(300));
+    const tooLong = await createTask("Plan too long", { actionPlan: words(301) });
     assert.equal(tooLong.status, 400);
-    assert.match(tooLong.json.error, /at most 60 words/);
-    const edit = await t.api("PUT", `/api/tasks/${ok.json.task.id}`, { actionPlan: words(61) });
+    assert.match(tooLong.json.error, /at most 300 words/);
+    const edit = await t.api("PUT", `/api/tasks/${ok.json.task.id}`, { actionPlan: words(301) });
     assert.equal(edit.status, 400);
   });
 
   test("BO Remark and BO Action Plan: same limit when adding and editing", async () => {
     const task = (await createTask("BO limits")).json.task;
     const url = `/api/tasks/${task.id}/officer-updates`;
-    assert.equal((await t.api("POST", url, { remark: words(61) }, t.officerToken)).status, 400);
-    assert.equal((await t.api("POST", url, { actionPlan: words(61) }, t.officerToken)).status, 400);
-    const ok = await t.api("POST", url, { remark: words(60), actionPlan: words(60) }, t.officerToken);
+    assert.equal((await t.api("POST", url, { remark: words(301) }, t.officerToken)).status, 400);
+    assert.equal((await t.api("POST", url, { actionPlan: words(301) }, t.officerToken)).status, 400);
+    const ok = await t.api("POST", url, { remark: words(300), actionPlan: words(300) }, t.officerToken);
     assert.equal(ok.status, 201, JSON.stringify(ok.json));
-    const edit = await t.api("PUT", `${url}/${ok.json.update.id}`, { remark: words(61) });
+    const edit = await t.api("PUT", `${url}/${ok.json.update.id}`, { remark: words(301) });
     assert.equal(edit.status, 400);
     const kept = await t.prisma.taskOfficerUpdate.findUniqueOrThrow({ where: { id: ok.json.update.id } });
-    assert.equal(kept.remark, words(60), "the rejected edit changed nothing");
+    assert.equal(kept.remark, words(300), "the rejected edit changed nothing");
+  });
+
+  test("DRM Remark: 150 words; an older longer remark can stay while other fields are edited", async () => {
+    assert.equal((await createTask("DRM ok", { remarks: words(150) })).status, 201);
+    const tooLong = await createTask("DRM too long", { remarks: words(151) });
+    assert.equal(tooLong.status, 400);
+    assert.match(tooLong.json.error, /DRM Remark can be at most 150 words/);
+    const task = (await createTask("Legacy DRM")).json.task;
+    await t.prisma.task.update({ where: { id: task.id }, data: { remarks: words(200) } });
+    const same = await t.api("PUT", `/api/tasks/${task.id}`, { title: "Legacy DRM (renamed)", remarks: words(200) });
+    assert.equal(same.status, 200, "unchanged older remark is accepted");
+    assert.equal((await t.api("PUT", `/api/tasks/${task.id}`, { remarks: words(201) })).status, 400);
   });
 
   test("words are counted across spaces and line breaks", async () => {
@@ -143,10 +155,10 @@ describe("60-word limits", () => {
 });
 
 describe("meeting PDF with long text", () => {
-  test("60-word remarks and plans, and older very long text, render without errors", async () => {
-    const task = (await createTask("Long text task", { actionPlan: words(60) })).json.task;
+  test("300-word remarks and plans, and older very long text, render without errors", async () => {
+    const task = (await createTask("Long text task", { actionPlan: words(300) })).json.task;
     await t.prisma.taskOfficerUpdate.create({
-      data: { taskId: task.id, officerId: t.officerId, remark: words(400) }, // older text, longer than a page
+      data: { taskId: task.id, officerId: t.officerId, remark: words(1500) }, // older text, longer than a page
     });
     const pdf = await t.api("GET", `/api/meetings/${upcoming}/export?format=pdf`);
     assert.equal(pdf.status, 200);

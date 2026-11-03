@@ -1,6 +1,6 @@
 import { apiFetch, getToken } from "./api";
 
-/** The repeating review frequencies (W / FT / M). */
+/** The repeating review frequencies (W / F1 / F2 / M). */
 export type Cycle = "WEEKLY" | "FORTNIGHTLY" | "MONTHLY";
 /** One-time review: discussed once, on the allocated Monday. */
 export type OneTimeCycle = "NEXT_MONDAY" | "NEXT_MONTH" | "FLEXIBLE";
@@ -21,7 +21,7 @@ export const ONE_TIME_HINT: Record<OneTimeCycle, string> = {
   FLEXIBLE: "Discussed once, on any Monday you choose.",
 };
 
-export function isOneTime(f: Frequency | "" | null | undefined): f is OneTimeCycle {
+export function isOneTime(f: string | null | undefined): f is OneTimeCycle {
   return f === "NEXT_MONDAY" || f === "NEXT_MONTH" || f === "FLEXIBLE";
 }
 
@@ -49,18 +49,51 @@ export const CYCLE_LABEL: Record<Cycle, string> = {
   MONTHLY: "Monthly",
 };
 
-/** Short review-frequency codes used everywhere (website and PDFs). */
-export const REVIEW_CODE: Record<Cycle, "W" | "FT" | "M"> = {
+/** Short review-frequency codes used everywhere (website and PDFs). Fortnightly tasks are F1 or F2. */
+export const REVIEW_CODE: Record<Cycle, string> = {
   WEEKLY: "W",
-  FORTNIGHTLY: "FT",
+  FORTNIGHTLY: "F1 / F2",
   MONTHLY: "M",
 };
 
 export const CYCLE_HINT: Record<Cycle, string> = {
   WEEKLY: "Weekly – every Monday",
-  FORTNIGHTLY: "Fortnightly – once every two weeks",
+  FORTNIGHTLY: "Fortnightly – F1: 1st & 3rd Mondays, F2: 2nd & 4th Mondays",
   MONTHLY: "Monthly – once a month",
 };
+
+/**
+ * What the user picks as Review Frequency. F1 and F2 are the two fortnightly
+ * groups; their Mondays follow automatically.
+ */
+export type FrequencyChoice = "WEEKLY" | "F1" | "F2" | "MONTHLY" | OneTimeCycle;
+
+export const REPEATING_CHOICES: { value: FrequencyChoice; code: string; label: string; hint: string }[] = [
+  { value: "WEEKLY", code: "W", label: "W – Weekly", hint: "Every Monday." },
+  { value: "F1", code: "F1", label: "F1 – Fortnightly (1st & 3rd Mondays)", hint: "The 1st and 3rd Monday of every month." },
+  { value: "F2", code: "F2", label: "F2 – Fortnightly (2nd & 4th Mondays)", hint: "The 2nd and 4th Monday of every month." },
+  { value: "MONTHLY", code: "M", label: "M – Monthly", hint: "Once a month, on its allocated Monday." },
+];
+
+/** A task's current choice: F1 / F2 come from its review code. */
+export function choiceOf(task: { cycle?: Frequency | null; discussionFrequency?: Frequency | null; reviewCode?: string | null }): FrequencyChoice | "" {
+  const cycle = task.cycle ?? task.discussionFrequency ?? null;
+  if (!cycle) return "";
+  if (cycle === "FORTNIGHTLY") return task.reviewCode === "F2" ? "F2" : "F1";
+  return cycle;
+}
+
+export function choiceLabel(choice: FrequencyChoice | Frequency): string {
+  if (isOneTime(choice)) return ONE_TIME_LABEL[choice];
+  if (choice === "FORTNIGHTLY") return "F1 / F2 (Fortnightly)";
+  const c = REPEATING_CHOICES.find((x) => x.value === choice);
+  return c ? `${c.code} (${c.label.split(" – ")[1].replace(/ \(.*\)$/, "")})` : choice;
+}
+
+/** CSS class suffix for a review code badge. */
+export function codeClass(code: string | null | undefined): string {
+  return code && ["W", "F1", "F2", "M"].includes(code) ? code : "ONE";
+}
 
 /** Allocated Monday of the month for M tasks. */
 export const ORDINAL_OPTIONS: { value: number; label: string }[] = [
@@ -79,13 +112,6 @@ export function mondayPositionLabel(date: string): string {
   return ORDINAL_OPTIONS[Math.ceil(day / 7) - 1]?.label ?? "";
 }
 
-/** The two alternate-week choices for a fortnightly task: starting on the coming Monday or the one after. */
-export function fortnightStartOptions(upcomingMonday: string): { value: string; label: string }[] {
-  return [upcomingMonday, addDaysISO(upcomingMonday, 7)].map((d) => ({
-    value: d,
-    label: `From ${fmtMonday(d)} (${mondayPositionLabel(d)}), then every other Monday`,
-  }));
-}
 
 export interface RegisterTask {
   id: string;
@@ -95,7 +121,7 @@ export interface RegisterTask {
   status: TaskStatusLabel;
   dueDate: string;
   cycle: Frequency | null;
-  /** W / FT / M, or the one-time frequency's name. */
+  /** W / F1 / F2 / M, or the one-time frequency's name. */
   reviewCode: string | null;
   monthlyMondayOrdinal: number | null;
   fortnightAnchor: string | null;
@@ -219,13 +245,13 @@ export interface CycleOptions {
   allocatedMonday?: string | null;
 }
 
-export const setCycle = (taskId: string, cycle: Frequency | null, options: CycleOptions = {}) =>
+export const setCycle = (taskId: string, cycle: FrequencyChoice | Frequency | null, options: CycleOptions = {}) =>
   apiFetch(`/api/schedule/tasks/${taskId}/cycle`, {
     method: "PATCH",
     body: JSON.stringify({ cycle, ...options }),
   });
 
-export const setCycleBulk = (taskIds: string[], cycle: Frequency | null, options: CycleOptions = {}) =>
+export const setCycleBulk = (taskIds: string[], cycle: FrequencyChoice | null, options: CycleOptions = {}) =>
   apiFetch<{ updated: number }>("/api/schedule/cycle", {
     method: "POST",
     body: JSON.stringify({ taskIds, cycle, ...options }),

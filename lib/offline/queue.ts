@@ -15,7 +15,7 @@ export type PendingTaskCreate = {
   status: "Pending" | "Running" | "Completed";
 
   // Monday meeting scheduling (optional: older queued items have none)
-  discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "NEXT_MONDAY" | "NEXT_MONTH" | "FLEXIBLE" | null;
+  discussionFrequency?: "WEEKLY" | "F1" | "F2" | "FORTNIGHTLY" | "MONTHLY" | "NEXT_MONDAY" | "NEXT_MONTH" | "FLEXIBLE" | null;
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: string | null;
   allocatedMonday?: string | null;

@@ -32,7 +32,7 @@ export type ApiTask = {
   discussionFrequency?: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "NEXT_MONDAY" | "NEXT_MONTH" | "FLEXIBLE" | null;
   monthlyMondayOrdinal?: number | null;
   fortnightAnchor?: string | null;
-  /** W / FT / M, or the one-time frequency's name */
+  /** W / F1 / F2 / M, or the one-time frequency's name */
   reviewCode?: string | null;
   /** e.g. "Every Monday", "3rd Monday", "2nd Monday · alternate weeks", "9 Nov 2026" */
   allocatedMonday?: string | null;

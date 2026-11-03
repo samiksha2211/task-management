@@ -9,7 +9,6 @@ import {
   ONE_TIME_CYCLES,
   ONE_TIME_HINT,
   ONE_TIME_LABEL,
-  frequencyLabel,
   isOneTime,
   setImportant,
   ORDINAL_OPTIONS,
@@ -22,7 +21,10 @@ import {
   reopenAgenda,
   fmtDay,
   fmtMonday,
-  fortnightStartOptions,
+  REPEATING_CHOICES,
+  choiceLabel,
+  choiceOf,
+  codeClass,
   getAgenda,
   getRegister,
   isMondayISO,
@@ -38,6 +40,7 @@ import {
   type Cycle,
   type CycleOptions,
   type Frequency,
+  type FrequencyChoice,
   type RegisterResponse,
   type RegisterTask,
   type StatusFilter,
@@ -56,8 +59,8 @@ function initialView(): View {
   return v && ["WEEKLY", "FORTNIGHTLY", "MONTHLY", "ONE_TIME", "UNASSIGNED", "AGENDA"].includes(v) ? (v as View) : "WEEKLY";
 }
 
-function codeLabel(cycle: Frequency): string {
-  return frequencyLabel(cycle);
+function codeLabel(cycle: FrequencyChoice | Frequency): string {
+  return choiceLabel(cycle);
 }
 
 export default function MeetingDashboard() {
@@ -128,12 +131,13 @@ export default function MeetingDashboard() {
   };
 
   /** Change a task's review frequency (and, for FT / M, its allocation). */
-  const changeSchedule = (task: RegisterTask, cycle: Frequency | null, options: CycleOptions = {}) => {
-    const from = task.cycle ? codeLabel(task.cycle) : "not assigned";
+  const changeSchedule = (task: RegisterTask, cycle: FrequencyChoice | null, options: CycleOptions = {}) => {
+    const current = choiceOf(task);
+    const from = current ? codeLabel(current) : "not assigned";
     const to = cycle ? codeLabel(cycle) : "not assigned";
     if (
-      task.cycle &&
-      task.cycle !== cycle &&
+      current &&
+      current !== cycle &&
       !window.confirm(`Change #${task.taskNumber} from ${from} to ${to}?\n\nIts future Monday dates follow the new frequency. Past discussions are kept.`)
     ) {
       return;
@@ -166,7 +170,7 @@ export default function MeetingDashboard() {
         <div>
           <h1 className="page-title">Monday Meeting</h1>
           <p className="mtg-subtitle">
-            Next meeting: {fmtMonday(register.upcomingMonday)} · W = Weekly, FT = Fortnightly, M = Monthly · One-time: Next
+            Next meeting: {fmtMonday(register.upcomingMonday)} · W = Weekly, F1 = 1st & 3rd Mondays, F2 = 2nd & 4th Mondays, M = Monthly · One-time: Next
             Monday, Next Month, Flexible Date
           </p>
         </div>
@@ -186,7 +190,7 @@ export default function MeetingDashboard() {
             onClick={() => selectView(cycle)}
           >
             <span className="mtg-cycle-name">
-              <span className={`review-code code-${REVIEW_CODE[cycle]}`}>{REVIEW_CODE[cycle]}</span> {CYCLE_LABEL[cycle]} tasks
+              <span className={`review-code code-${cycle === "FORTNIGHTLY" ? "F1" : REVIEW_CODE[cycle]}`}>{REVIEW_CODE[cycle]}</span> {CYCLE_LABEL[cycle]} tasks
             </span>
             <span className="mtg-cycle-count">{register.counts[cycle]}</span>
             <span className="mtg-cycle-hint">{CYCLE_HINT[cycle].split(" – ")[1]}</span>
@@ -292,7 +296,7 @@ function ReviewBadge({ task }: { task: Pick<RegisterTask, "reviewCode" | "cycle"
     );
   }
   return (
-    <span className={`review-code code-${task.reviewCode}`} title={CYCLE_HINT[task.cycle]}>
+    <span className={`review-code code-${codeClass(task.reviewCode)}`} title={CYCLE_HINT[task.cycle]}>
       {task.reviewCode}
     </span>
   );
@@ -305,20 +309,20 @@ function FrequencySelect({
 }: {
   task: RegisterTask;
   disabled: boolean;
-  onChange: (cycle: Frequency | null) => void;
+  onChange: (cycle: FrequencyChoice | null) => void;
 }) {
   return (
     <select
       aria-label={`Review frequency for task ${task.taskNumber}`}
-      value={task.cycle ?? ""}
+      value={choiceOf(task)}
       disabled={disabled}
-      onChange={(e) => onChange((e.target.value || null) as Frequency | null)}
+      onChange={(e) => onChange((e.target.value || null) as FrequencyChoice | null)}
     >
       <option value="">Not assigned</option>
       <optgroup label="Repeating">
-        {CYCLES.map((c) => (
-          <option key={c} value={c}>
-            {REVIEW_CODE[c]}
+        {REPEATING_CHOICES.map((c) => (
+          <option key={c.value} value={c.value} title={c.hint}>
+            {c.code}
           </option>
         ))}
       </optgroup>
@@ -390,32 +394,8 @@ function AllocatedMonday({
       </>
     );
   }
-  if (task.cycle === "FORTNIGHTLY") {
-    const starts = fortnightStartOptions(upcomingMonday);
-    // Which of the two alternate weeks the task's cycle is in.
-    const current =
-      starts.find(
-        (o) => task.fortnightAnchor && Math.abs(Date.parse(o.value) - Date.parse(task.fortnightAnchor)) % (14 * 864e5) === 0
-      )?.value ?? "";
-    return (
-      <>
-        <select
-          aria-label={`Alternate Mondays for task ${task.taskNumber}`}
-          value={current}
-          disabled={disabled}
-          onChange={(e) => onChange({ fortnightAnchor: e.target.value })}
-        >
-          {!current && <option value="">Choose week</option>}
-          {starts.map((o) => (
-            <option key={o.value} value={o.value}>
-              From {fmtDay(o.value)}
-            </option>
-          ))}
-        </select>
-        <div className="mtg-muted">{task.allocatedMonday}</div>
-      </>
-    );
-  }
+  // F1 / F2: the Mondays follow from the frequency.
+  if (task.cycle === "FORTNIGHTLY") return <span>{task.allocatedMonday}</span>;
   if (task.cycle === "WEEKLY") return <span>Every Monday</span>;
   return <span className="mtg-muted">—</span>;
 }
@@ -474,10 +454,10 @@ function RegisterView({
   upcomingMonday: string;
   nextMonthMondays: string[];
   busy: boolean;
-  onSchedule: (task: RegisterTask, cycle: Frequency | null, options?: CycleOptions) => void;
+  onSchedule: (task: RegisterTask, cycle: FrequencyChoice | null, options?: CycleOptions) => void;
   onAllocate: (task: RegisterTask, date: string) => void;
   onImportant: (task: RegisterTask) => void;
-  onBulkCycle: (ids: string[], cycle: Cycle, options: CycleOptions) => void;
+  onBulkCycle: (ids: string[], cycle: FrequencyChoice, options: CycleOptions) => void;
   onReschedule: (task: RegisterTask) => void;
   onHistory: (task: RegisterTask) => void;
 }) {
@@ -485,9 +465,8 @@ function RegisterView({
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "taskNumber", dir: 1 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bulkCycle, setBulkCycle] = useState<Cycle>("WEEKLY");
+  const [bulkCycle, setBulkCycle] = useState<FrequencyChoice>("WEEKLY");
   const [bulkOrdinal, setBulkOrdinal] = useState(1);
-  const [bulkAnchor, setBulkAnchor] = useState(upcomingMonday);
   const [downloading, setDownloading] = useState(false);
 
   const rows = useMemo(() => {
@@ -586,10 +565,10 @@ function RegisterView({
         {isUnassigned && (
           <>
             <span className="mtg-toolbar-gap" />
-            <select aria-label="Review frequency to assign" value={bulkCycle} onChange={(e) => setBulkCycle(e.target.value as Cycle)}>
-              {CYCLES.map((c) => (
-                <option key={c} value={c}>
-                  {codeLabel(c)}
+            <select aria-label="Review frequency to assign" value={bulkCycle} onChange={(e) => setBulkCycle(e.target.value as FrequencyChoice)}>
+              {REPEATING_CHOICES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
                 </option>
               ))}
             </select>
@@ -602,15 +581,6 @@ function RegisterView({
                 ))}
               </select>
             )}
-            {bulkCycle === "FORTNIGHTLY" && (
-              <select aria-label="Alternate Mondays to assign" value={bulkAnchor} onChange={(e) => setBulkAnchor(e.target.value)}>
-                {fortnightStartOptions(upcomingMonday).map((o) => (
-                  <option key={o.value} value={o.value}>
-                    From {fmtDay(o.value)}
-                  </option>
-                ))}
-              </select>
-            )}
             <button
               type="button"
               className="mtg-btn"
@@ -619,11 +589,7 @@ function RegisterView({
                 onBulkCycle(
                   [...selected],
                   bulkCycle,
-                  bulkCycle === "MONTHLY"
-                    ? { monthlyMondayOrdinal: bulkOrdinal }
-                    : bulkCycle === "FORTNIGHTLY"
-                      ? { fortnightAnchor: bulkAnchor }
-                      : {}
+                  bulkCycle === "MONTHLY" ? { monthlyMondayOrdinal: bulkOrdinal } : {}
                 );
                 setSelected(new Set());
               }}
@@ -702,7 +668,7 @@ function RegisterView({
                     upcomingMonday={upcomingMonday}
                     nextMonthMondays={nextMonthMondays}
                     disabled={busy}
-                    onChange={(options) => onSchedule(t, t.cycle, options)}
+                    onChange={(options) => onSchedule(t, choiceOf(t) || null, options)}
                     onAllocate={(date) => onAllocate(t, date)}
                   />
                 </td>
@@ -1012,7 +978,7 @@ function AllCyclesDownload() {
         ))}
       </select>
       <button type="button" className="mtg-btn" onClick={download} disabled={downloading}>
-        {downloading ? "Preparing PDF..." : "Download W / FT / M PDF"}
+        {downloading ? "Preparing PDF..." : "Download W / F1 / F2 / M PDF"}
       </button>
     </div>
   );

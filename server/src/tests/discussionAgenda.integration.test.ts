@@ -147,8 +147,8 @@ describe("12-column agenda", () => {
     const old = await createTask("Older task", { date: addDays(today, -30), discussionFrequency: "FLEXIBLE", allocatedMonday: addDays(later, 14) });
     const recent = await createTask("Recent task", { date: addDays(today, -1), discussionFrequency: "FLEXIBLE", allocatedMonday: addDays(later, 14) });
     const items = await agenda(addDays(later, 14));
-    const onlyOneTime = items.filter((i) => i.frequency !== "W (Weekly)");
-    assert.deepEqual(onlyOneTime.map((i) => i.id), [recent.id, old.id]);
+    const mine = items.filter((i) => i.id === recent.id || i.id === old.id);
+    assert.deepEqual(mine.map((i) => i.id), [recent.id, old.id]);
     assert.deepEqual(items.map((i) => i.serial), items.map((_, i) => i + 1));
     const dates = items.map((i) => i.date);
     assert.deepEqual(dates, [...dates].sort().reverse());

@@ -10,7 +10,7 @@ import { validate } from "../lib/validate";
 import type { AuthRequest } from "../middleware/auth";
 import { prisma } from "../prisma";
 import { setTaskCycle } from "../services/scheduling/actions";
-import { ALL_CYCLES, CYCLE_LABEL, isOneTime, type Cycle } from "../services/scheduling/config";
+import { ALL_CYCLES, CYCLE_INPUTS, CYCLE_LABEL, isOneTime, parseCycleInput, type Cycle } from "../services/scheduling/config";
 import {
   fromISODate,
   isISODate,
@@ -33,6 +33,7 @@ import {
   planDiscussed,
   planReschedule,
   REVIEW_CODE,
+  reviewCode,
   SchedulingError,
 } from "../services/scheduling/rules";
 import {
@@ -49,7 +50,7 @@ import {
 
 const isoDate = z.string().refine(isISODate, "must be a date (YYYY-MM-DD)");
 const mondayDate = isoDate.refine(isMonday, "must be a Monday");
-const cycleInput = z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY", "NEXT_MONDAY", "NEXT_MONTH", "FLEXIBLE"]);
+const cycleInput = z.enum(CYCLE_INPUTS);
 const ordinalInput = z.number().int().min(1).max(5).nullable().optional();
 const anchorInput = mondayDate.nullable().optional();
 const allocatedInput = mondayDate.nullable().optional();
@@ -102,7 +103,7 @@ function scheduleView(task: Task, from: ISODate) {
   const closed = isTaskClosed(s);
   return {
     cycle: task.discussionFrequency,
-    reviewCode: task.discussionFrequency ? REVIEW_CODE[task.discussionFrequency] : null,
+    reviewCode: reviewCode(s),
     monthlyMondayOrdinal: task.monthlyMondayOrdinal,
     fortnightAnchor: toISODateOrNull(task.fortnightAnchor),
     oneTime: isOneTime(task.discussionFrequency),
@@ -164,7 +165,7 @@ const pdfInclude = {
 } satisfies Prisma.TaskInclude;
 
 // Register PDFs: the Task Report layout (without Action Plan TDC). A single
-// W / FT / M register needs no review column (its title says the frequency);
+// W / F1 / F2 / M register needs no review column (its title says the frequency);
 // the combined register shows it to the left of the task.
 const REGISTER_COLUMNS: PdfColumnKey[] = [
   "serial", "date", "task", "coordinatorOfficer", "otherOfficers",
@@ -269,6 +270,16 @@ function groupedRows(rows: TaskExportRow[], tasks: ExportTask[]): TaskExportRow[
   return out;
 }
 
+/** Fortnightly register: an F1 section and an F2 section, numbered from 1 in each. */
+function fortnightRows(rows: TaskExportRow[], tasks: ExportTask[]): TaskExportRow[] {
+  const out: TaskExportRow[] = [];
+  for (const [code, label] of [["F1", "1st & 3rd Mondays"], ["F2", "2nd & 4th Mondays"]]) {
+    const inGroup = rows.filter((_, i) => reviewCode(toSchedulable(tasks[i])) === code);
+    out.push(...inGroup.map((r, i) => ({ ...r, serial: i + 1, group: `${code} — ${label} (${inGroup.length})` })));
+  }
+  return out;
+}
+
 function sendPdf(res: Response, pdf: Buffer, filename: string): void {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -300,14 +311,16 @@ export async function downloadRegisterPdf(req: AuthRequest, res: Response): Prom
   ).filter((t) => matchesStatus(t, q.status));
 
   const rows = pdfRows(tasks, today(), undefined, true);
+  const fortnightly = q.cycle === "FORTNIGHTLY";
   const title = all
     ? "Monday Meeting — All Review Frequencies"
     : `Monday Meeting — ${REVIEW_CODE[q.cycle as Cycle]} (${CYCLE_LABEL[q.cycle as Cycle]}) Tasks`;
-  const pdf = await exportToPdf(all ? groupedRows(rows, tasks) : rows, {
+  const pdf = await exportToPdf(all ? groupedRows(rows, tasks) : fortnightly ? fortnightRows(rows, tasks) : rows, {
     title,
-    subtitle: `Status: ${STATUS_CHOICE_LABEL[q.status]}  •  W = Weekly, FT = Fortnightly, M = Monthly  •  Generated ${generatedAt()}  •  ${tasks.length} task(s)`,
+    subtitle: `Status: ${STATUS_CHOICE_LABEL[q.status]}  •  W = Weekly, F1 = 1st & 3rd Mondays, F2 = 2nd & 4th Mondays, M = Monthly  •  Generated ${generatedAt()}  •  ${tasks.length} task(s)`,
     footer: `RailWork  ·  ${title}`,
-    columns: all ? ALL_REGISTER_COLUMNS : REGISTER_COLUMNS,
+    // The F1 / F2 register shows which of the two each task is.
+    columns: all || fortnightly ? ALL_REGISTER_COLUMNS : REGISTER_COLUMNS,
   });
   const statusPart = q.status === "all" ? "" : `_${q.status}`;
   sendPdf(res, pdf, `monday_meeting_${q.cycle.toLowerCase()}${statusPart}_${today()}.pdf`);
@@ -328,11 +341,12 @@ export async function setCycle(req: AuthRequest, res: Response): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const task = await tx.task.findFirst({ where: { id: param(req, "id"), deletedAt: null } });
     if (!task) throw notFound("Task not found");
+    const { cycle, fortnightGroup } = parseCycleInput(body.cycle);
     await setTaskCycle(
       tx,
       task,
-      body.cycle,
-      { monthlyMondayOrdinal: body.monthlyMondayOrdinal, fortnightAnchor: body.fortnightAnchor, allocatedMonday: body.allocatedMonday },
+      cycle,
+      { monthlyMondayOrdinal: body.monthlyMondayOrdinal, fortnightAnchor: body.fortnightAnchor, fortnightGroup, allocatedMonday: body.allocatedMonday },
       req.user!.id
     );
     await syncUpcomingMeetings(tx);
@@ -354,13 +368,15 @@ export async function setCycleBulk(req: AuthRequest, res: Response): Promise<voi
   let count = 0;
   await prisma.$transaction(async (tx) => {
     const tasks = await tx.task.findMany({ where: { id: { in: body.taskIds }, deletedAt: null } });
+    const { cycle, fortnightGroup } = parseCycleInput(body.cycle);
     const options = {
       monthlyMondayOrdinal: body.monthlyMondayOrdinal,
       fortnightAnchor: body.fortnightAnchor,
+      fortnightGroup,
       allocatedMonday: body.allocatedMonday,
     };
     const plans = tasks
-      .map((task) => ({ task, patch: planCycleChange(toSchedulable(task), body.cycle, options, today()) }))
+      .map((task) => ({ task, patch: planCycleChange(toSchedulable(task), cycle, options, today()) }))
       .filter(
         ({ task, patch }) =>
           patch.discussionFrequency !== task.discussionFrequency ||
@@ -388,7 +404,7 @@ export async function setCycleBulk(req: AuthRequest, res: Response): Promise<voi
         type: task.discussionFrequency ? ("FREQUENCY_CHANGED" as const) : ("INITIALIZED" as const),
         userId: req.user!.id,
         fromFrequency: task.discussionFrequency,
-        toFrequency: body.cycle,
+        toFrequency: cycle,
         reason: patch.scheduleReason,
       })),
     });
@@ -562,10 +578,11 @@ function latestBoUpdate(task: AgendaTask) {
   };
 }
 
-/** Review Frequency as shown in the agenda: "W (Weekly)", "Next Month", ... */
-function frequencyText(cycle: Cycle | null): string {
+/** Review Frequency as shown in the agenda: "W (Weekly)", "F2 (Fortnightly)", "Next Month", ... */
+function frequencyText(task: Task): string {
+  const cycle = task.discussionFrequency;
   if (!cycle) return "—";
-  return isOneTime(cycle) ? CYCLE_LABEL[cycle] : `${REVIEW_CODE[cycle]} (${CYCLE_LABEL[cycle]})`;
+  return isOneTime(cycle) ? CYCLE_LABEL[cycle] : `${reviewCode(toSchedulable(task))} (${CYCLE_LABEL[cycle]})`;
 }
 
 /** Newest task date first; S.N. follows this order on the website and in the PDF. */
@@ -602,7 +619,7 @@ async function agendaView(meetingDate: ISODate) {
         // Allocated Monday and next date as seen from this meeting.
         ...registerView(task, meetingDate),
         date: toISODate(task.date),
-        frequency: frequencyText(task.discussionFrequency),
+        frequency: frequencyText(task),
         otherOfficers: task.additionalAssignees.map((a) => a.officer.designation),
         actionPlan: task.actionPlan,
         drmRemark: task.remarks,

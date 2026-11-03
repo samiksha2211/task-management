@@ -16,6 +16,10 @@ const inTwoWeeks = addDays(upcoming, 14);
 // The 1st Monday of the month after the upcoming Monday.
 const [uy, um] = upcoming.split("-").map(Number);
 const nextMonthFirst = nthMondayOfMonth(um === 12 ? uy + 1 : uy, um === 12 ? 1 : um + 1, 1);
+/** Which Monday of its month a date is (1-5). */
+const pos = (d: string) => Math.ceil(Number(d.slice(8, 10)) / 7);
+const isF1Day = (d: string) => pos(d) === 1 || pos(d) === 3;
+const isF2Day = (d: string) => pos(d) === 2 || pos(d) === 4;
 
 async function createTask(title: string, extra: Record<string, unknown> = {}) {
   const res = await api("POST", "/api/tasks", { title, date: today, dueDate: addDays(today, 60), officerId: t.officerId, ...extra });
@@ -52,10 +56,10 @@ after(async () => {
 describe("review calendar", () => {
   const task: Record<string, string> = {};
 
-  test("tasks get W / FT / M with an allocated Monday", async () => {
+  test("tasks get W / F1 / F2 / M with allocated Mondays", async () => {
     const w = await createTask("Weekly task", { discussionFrequency: "WEEKLY" });
-    const ftA = await createTask("Fortnightly A", { discussionFrequency: "FORTNIGHTLY", fortnightAnchor: upcoming });
-    const ftB = await createTask("Fortnightly B", { discussionFrequency: "FORTNIGHTLY", fortnightAnchor: nextWeek });
+    const ftA = await createTask("Fortnightly A", { discussionFrequency: "F1" });
+    const ftB = await createTask("Fortnightly B", { discussionFrequency: "F2" });
     const m1 = await createTask("Monthly 1st", { discussionFrequency: "MONTHLY", monthlyMondayOrdinal: 1 });
     const m5 = await createTask("Monthly 5th", { discussionFrequency: "MONTHLY", monthlyMondayOrdinal: 5 });
     const done = await createTask("Completed weekly", { discussionFrequency: "WEEKLY", status: "Completed" });
@@ -65,10 +69,12 @@ describe("review calendar", () => {
     assert.equal(w.reviewCode, "W");
     assert.equal(w.allocatedMonday, "Every Monday");
     assert.equal(w.nextDiscussionDate, upcoming);
-    assert.equal(ftA.reviewCode, "FT");
-    assert.equal(ftA.nextDiscussionDate, upcoming);
-    assert.equal(ftB.nextDiscussionDate, nextWeek);
-    assert.match(ftB.allocatedMonday!, /Monday · alternate weeks$/);
+    assert.equal(ftA.reviewCode, "F1");
+    assert.equal(ftB.reviewCode, "F2");
+    assert.equal(ftA.allocatedMonday, "1st & 3rd Monday");
+    assert.equal(ftB.allocatedMonday, "2nd & 4th Monday");
+    assert.ok(isF1Day(ftA.nextDiscussionDate!) && ftA.nextDiscussionDate! >= upcoming);
+    assert.ok(isF2Day(ftB.nextDiscussionDate!) && ftB.nextDiscussionDate! >= upcoming);
     assert.equal(m1.reviewCode, "M");
     assert.equal(m1.allocatedMonday, "1st Monday");
     assert.equal(m5.allocatedMonday, "5th Monday");
@@ -81,9 +87,8 @@ describe("review calendar", () => {
       assert.equal(new Set(due).size, due.length, `no duplicates on ${d}`);
       assert.ok(due.includes(task.w), `weekly on ${d}`);
       assert.ok(!due.includes(task.done) && !due.includes(task.none));
-      const weeks = Math.round((Date.parse(d) - Date.parse(upcoming)) / (7 * 864e5));
-      assert.equal(due.includes(task.ftA), weeks % 2 === 0, `FT A on ${d}`);
-      assert.equal(due.includes(task.ftB), weeks % 2 === 1, `FT B on ${d}`);
+      assert.equal(due.includes(task.ftA), isF1Day(d), `F1 on ${d}`);
+      assert.equal(due.includes(task.ftB), isF2Day(d), `F2 on ${d}`);
       const [y, m] = d.split("-").map(Number);
       assert.equal(due.includes(task.m1), d === nthMondayOfMonth(y, m, 1), `M 1st on ${d}`);
       assert.equal(due.includes(task.m5), d === nthMondayOfMonth(y, m, 5), `M 5th on ${d}`);
@@ -104,21 +109,22 @@ describe("review calendar", () => {
   });
 
   test("ticking Discussed twice creates one record and does not move the calendar", async () => {
-    const url = `/api/meetings/${upcoming}/items/${task.ftA}/outcome`;
+    const url = `/api/meetings/${upcoming}/items/${task.w}/outcome`;
     assert.equal((await api("POST", url, { outcome: "DISCUSSED" })).status, 200);
     assert.equal((await api("POST", url, { outcome: "DISCUSSED" })).status, 200);
-    assert.equal(await t.prisma.meetingAgendaItem.count({ where: { taskId: task.ftA } }), 1);
+    assert.equal(await t.prisma.meetingAgendaItem.count({ where: { taskId: task.w } }), 1);
     assert.equal(await t.prisma.meeting.count(), 1);
-    assert.ok(!(await ids(nextWeek)).includes(task.ftA));
-    assert.ok((await ids(inTwoWeeks)).includes(task.ftA));
+    assert.ok((await ids(nextWeek)).includes(task.w), "still on the next Monday");
     assert.equal((await api("POST", url, { outcome: "PENDING" })).status, 200);
-    const ft = await t.prisma.task.findUniqueOrThrow({ where: { id: task.ftA } });
-    assert.equal(ft.lastDiscussedAt, null);
+    const w = await t.prisma.task.findUniqueOrThrow({ where: { id: task.w } });
+    assert.equal(w.lastDiscussedAt, null);
   });
 
   test("an undiscussed task does not carry over", async () => {
-    const due = await ids(nextWeek);
-    assert.ok(!due.includes(task.ftA), "FT A was not ticked on the upcoming Monday, yet it is not on the next one");
+    for (const id of [task.ftA, task.ftB]) {
+      const isA = id === task.ftA;
+      assert.equal((await ids(nextWeek)).includes(id), isA ? isF1Day(nextWeek) : isF2Day(nextWeek));
+    }
   });
 
   test("reschedule moves one date only", async () => {
@@ -130,12 +136,14 @@ describe("review calendar", () => {
     assert.equal(dup.status, 409, "a weekly task is already on every Monday");
   });
 
-  test("changing W -> FT -> M -> W updates the calendar without duplicates", async () => {
+  test("changing W -> F1 -> F2 -> M -> W updates the calendar without duplicates", async () => {
     const id = task.w;
-    let res = await api("PATCH", `/api/schedule/tasks/${id}/cycle`, { cycle: "FORTNIGHTLY", fortnightAnchor: nextWeek });
+    let res = await api("PATCH", `/api/schedule/tasks/${id}/cycle`, { cycle: "F1" });
     assert.equal(res.status, 200, JSON.stringify(res.json));
-    assert.ok(!(await ids(upcoming)).includes(id));
-    assert.ok((await ids(nextWeek)).includes(id));
+    for (const d of [upcoming, nextWeek, inTwoWeeks]) assert.equal((await ids(d)).includes(id), isF1Day(d), `F1 on ${d}`);
+    res = await api("PATCH", `/api/schedule/tasks/${id}/cycle`, { cycle: "F2" });
+    assert.equal(res.status, 200);
+    for (const d of [upcoming, nextWeek, inTwoWeeks]) assert.equal((await ids(d)).includes(id), isF2Day(d), `F2 on ${d}`);
 
     res = await api("PATCH", `/api/schedule/tasks/${id}/cycle`, { cycle: "MONTHLY", monthlyMondayOrdinal: 1 });
     assert.equal(res.status, 200);

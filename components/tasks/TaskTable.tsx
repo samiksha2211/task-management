@@ -13,7 +13,8 @@ import { removeAttachment } from "@/lib/attachments";
 
 const REVIEW_TITLE: Record<string, string> = {
   W: "Weekly – every Monday",
-  FT: "Fortnightly – once every two weeks",
+  F1: "Fortnightly – 1st & 3rd Mondays",
+  F2: "Fortnightly – 2nd & 4th Mondays",
   M: "Monthly – once a month",
   "Next Monday": "One-time – the coming Monday",
   "Next Month": "One-time – a Monday of next month",
@@ -1086,12 +1087,12 @@ const handleDeleteBoUpdate = async (
 
                 <td>{formatDate(task.date)}</td>
 
-                {/* 3 - Review Frequency (W / FT / M) and allocated Monday */}
+                {/* 3 - Review Frequency (W / F1 / F2 / M) and allocated Monday */}
                 <td>
                   {task.reviewCode ? (
                     <>
                       <span
-                        className={`review-code code-${["W", "FT", "M"].includes(task.reviewCode) ? task.reviewCode : "ONE"}`}
+                        className={`review-code code-${["W", "F1", "F2", "M"].includes(task.reviewCode) ? task.reviewCode : "ONE"}`}
                         title={REVIEW_TITLE[task.reviewCode]}
                       >
                         {task.reviewCode}
