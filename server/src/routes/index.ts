@@ -53,6 +53,7 @@ router.post("/auth/change-password", requireAuth, auth.changePassword);
 router.post("/auth/forgot-password", auth.forgotPassword);
 router.post("/auth/reset-password", auth.resetPassword);
 
+router.get("/users/designations", requireAuth, users.listDesignations);
 router.get("/users", requireAuth, requireAdmin, users.listUsers);
 router.post("/users", requireAuth, requireAdmin, users.createUser);
 router.post(
@@ -89,10 +90,10 @@ router.post(
   requireAuth,
   tasks.createOfficerUpdate
 );
+// DRM, or the assigned BO who wrote the update (checked in the controller).
 router.put(
   "/tasks/:id/officer-updates/:updateId",
   requireAuth,
-  requireAdmin,
   tasks.updateOfficerUpdate
 );
 router.delete(

@@ -8,7 +8,8 @@ import Link from "next/link";
 
 import { FaDownload } from "react-icons/fa";
 
-import { apiFetch, formatDate, getRole, type ApiAttachment, type ApiTask } from "@/lib/api";
+import { apiFetch, formatDate, getRole, getStoredUser, isAssignedTo, type ApiAttachment, type ApiTask } from "@/lib/api";
+import { DEPARTMENTS, departmentOf, taskDepartments, taskInDepartment, type Department } from "@/lib/departments";
 import { removeAttachment } from "@/lib/attachments";
 
 const REVIEW_TITLE: Record<string, string> = {
@@ -70,11 +71,19 @@ export default function TaskTable({
 
   initialStatus = "all",
 
+  initialDepartment = "all",
+
+  initialDesignation,
+
 }: {
 
   initialSearch?: string;
 
   initialStatus?: string;
+
+  initialDepartment?: Department | "all";
+
+  initialDesignation?: string;
 
 }) {
 
@@ -92,7 +101,10 @@ export default function TaskTable({
 
   const [date, setDate] = useState("");
 
-  const [selectedDesignations, setSelectedDesignations] = useState<string[]>([]);
+  const [selectedDesignations, setSelectedDesignations] = useState<string[]>(initialDesignation ? [initialDesignation] : []);
+
+  // BO view only: the DRM's Tasks page has no department filter.
+  const [department, setDepartment] = useState<Department | "all">(initialDepartment);
 
   const [designationFilterOpen, setDesignationFilterOpen] = useState(false);
 
@@ -103,6 +115,8 @@ export default function TaskTable({
 
 
   const isAdmin = getRole() === "ADMIN";
+
+  const myId = getStoredUser()?.id;
 
 
 
@@ -318,13 +332,17 @@ export default function TaskTable({
 
 
 
-  return [...set].sort((a, b) =>
+  return [...set]
+
+    .filter((d) => isAdmin || department === "all" || departmentOf(d) === department)
+
+    .sort((a, b) =>
 
     a.localeCompare(b)
 
   );
 
-}, [allTasks]);
+}, [allTasks, isAdmin, department]);
 
 
 
@@ -361,6 +379,8 @@ export default function TaskTable({
       }
 
       if (date && toLocalDateKey(task.date) !== date) return false;
+
+      if (!isAdmin && department !== "all" && !taskInDepartment(task, department)) return false;
 
       if (selectedDesignations.length > 0) {
 
@@ -917,6 +937,36 @@ const handleDeleteBoUpdate = async (
 
 </div>
 
+        {!isAdmin && (
+
+          <select
+
+            value={department}
+
+            aria-label="Filter by department"
+
+            onChange={(e) => {
+
+              setDepartment(e.target.value as Department | "all");
+
+              setSelectedDesignations([]);
+
+            }}
+
+          >
+
+            <option value="all">All Departments</option>
+
+            {DEPARTMENTS.map((d) => (
+
+              <option key={d} value={d}>{d}</option>
+
+            ))}
+
+          </select>
+
+        )}
+
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
 
           <option value="all">All Statuses</option>
@@ -1149,6 +1199,12 @@ const handleDeleteBoUpdate = async (
 
                   {task.officer.designation}
 
+                  {!isAdmin && (
+
+                    <div className="task-dept">{taskDepartments(task).join(", ") || "-"}</div>
+
+                  )}
+
                 </td>
 
                 {/* 6 - Other Officers */}
@@ -1200,6 +1256,8 @@ const handleDeleteBoUpdate = async (
           </strong>
 
           <div>{update.actionPlan}</div>
+
+          {update.actionPlanDate && <div>Date: {formatDate(update.actionPlanDate)}</div>}
 
         </div>
 
@@ -1451,7 +1509,7 @@ const handleDeleteBoUpdate = async (
 
                   ) : (
 
-                    !task.offlinePending && (
+                    !task.offlinePending && isAssignedTo(task, myId) && (
 
                       <button
 

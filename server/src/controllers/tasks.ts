@@ -29,7 +29,7 @@ import { prisma } from "../prisma";
 import { setTaskCycle } from "../services/scheduling/actions";
 import { CYCLE_INPUTS, parseCycleInput, type CycleInput } from "../services/scheduling/config";
 import { DRM_REMARK_LIMIT, withinWordLimit, wordLimitMessage } from "../lib/wordLimit";
-import { isISODate, isMonday } from "../services/scheduling/dates";
+import { fromISODateOrNull, isISODate, isMonday } from "../services/scheduling/dates";
 import { syncUpcomingMeetings, TX_OPTIONS } from "../services/scheduling/repository";
 
 const statusInput = z.enum(["Pending", "Running", "Completed", "pending", "running", "completed"]);
@@ -110,6 +110,7 @@ const officerUpdateSchema = z.object({
     .refine((v) => withinWordLimit(v), wordLimitMessage("Action Plan"))
     .optional()
     .nullable(),
+  actionPlanDate: z.string().refine(isISODate, "must be a date (YYYY-MM-DD)").optional().nullable(),
   remark: z
     .string()
     .trim()
@@ -195,6 +196,25 @@ interface ListQuery {
   dateFrom?: string;
   dateTo?: string;
 }
+
+/** View access is for everyone; a BO changes a task only if assigned to it. */
+function isAssigned(
+  user: { id: string },
+  task: { officerId: string; additionalAssignees: { officerId: string }[] }
+): boolean {
+  return task.officerId === user.id || task.additionalAssignees.some((a) => a.officerId === user.id);
+}
+
+/** DRM always; a BO only on tasks assigned to them. */
+function canWorkOnTask(
+  user: { id: string; role: string },
+  task: { officerId: string; additionalAssignees: { officerId: string }[] }
+): boolean {
+  return user.role === "ADMIN" || isAssigned(user, task);
+}
+
+// Only what the client needs; never the officer's password or reset token.
+const updateOfficerSelect = { officer: { select: { id: true, name: true, designation: true } } };
 
 function buildListWhere(q: ListQuery): Prisma.TaskWhereInput {
   const where: Prisma.TaskWhereInput = statusFilterToWhere(q.status);
@@ -588,6 +608,7 @@ export async function createOfficerUpdate(
   // At least one BO field must contain something
   if (
     !body.actionPlan?.trim() &&
+    !body.actionPlanDate &&
     !body.remark?.trim() &&
     newAttachments.length === 0
   ) {
@@ -614,19 +635,11 @@ export async function createOfficerUpdate(
 
   // ADMIN can administratively add/update information.
   // OFFICER must actually be assigned to the task.
-  if (req.user.role !== "ADMIN") {
-    const isCoordinator = task.officerId === req.user.id;
-
-    const isAdditionalOfficer = task.additionalAssignees.some(
-      (assignment) => assignment.officerId === req.user!.id
-    );
-
-    if (!isCoordinator && !isAdditionalOfficer) {
-      res.status(403).json({
-        error: "You are not assigned to this task.",
-      });
-      return;
-    }
+  if (!canWorkOnTask(req.user, task)) {
+    res.status(403).json({
+      error: "You are not assigned to this task.",
+    });
+    return;
   }
 
   const userId = req.user.id;
@@ -636,9 +649,10 @@ export async function createOfficerUpdate(
         taskId,
         officerId: userId,
         actionPlan: body.actionPlan?.trim() || null,
+        actionPlanDate: fromISODateOrNull(body.actionPlanDate),
         remark: body.remark?.trim() || null,
       },
-      include: { officer: true },
+      include: updateOfficerSelect,
     });
     await createAttachments(tx, { taskId, officerUpdateId: created.id, userId, inputs: newAttachments });
     return created;
@@ -679,11 +693,20 @@ export async function updateOfficerUpdate(
       id: updateId,
       taskId,
     },
+    include: { task: { include: { additionalAssignees: true } } },
   });
 
   if (!existingUpdate) {
     res.status(404).json({
       error: "BO update not found",
+    });
+    return;
+  }
+
+  // A BO edits only their own update, on a task assigned to them.
+  if (!canManageBo(req.user, existingUpdate) || !canWorkOnTask(req.user, existingUpdate.task)) {
+    res.status(403).json({
+      error: "You can only edit your own update on a task assigned to you.",
     });
     return;
   }
@@ -698,13 +721,15 @@ export async function updateOfficerUpdate(
         actionPlan: body.actionPlan?.trim() || null,
       }),
 
+      ...(body.actionPlanDate !== undefined && {
+        actionPlanDate: fromISODateOrNull(body.actionPlanDate),
+      }),
+
       ...(body.remark !== undefined && {
         remark: body.remark?.trim() || null,
       }),
     },
-    include: {
-      officer: true,
-    },
+    include: updateOfficerSelect,
   });
 
   if (newAttachments.length) {
@@ -787,9 +812,14 @@ export async function updateTaskStatus(req: AuthRequest, res: Response): Promise
 
   const existing = await prisma.task.findFirst({
     where: { id: param(req, "id"), deletedAt: null },
+    include: { additionalAssignees: true },
   });
   if (!existing) {
     res.status(404).json({ error: "Task not found" });
+    return;
+  }
+  if (!canWorkOnTask(req.user!, existing)) {
+    res.status(403).json({ error: "You are not assigned to this task." });
     return;
   }
 
@@ -901,13 +931,13 @@ export async function addAttachments(req: AuthRequest, res: Response): Promise<v
     throw new AttachmentError("Choose at least one file or paste a Google Sheets link.");
   }
 
-  const task = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null } });
+  const task = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, include: { additionalAssignees: true } });
   if (!task) throw new AttachmentError("Task not found", 404);
 
   if (body.officerUpdateId) {
     const update = await prisma.taskOfficerUpdate.findFirst({ where: { id: body.officerUpdateId, taskId } });
     if (!update) throw new AttachmentError("BO entry not found", 404);
-    if (!canManageBo(req.user!, update)) {
+    if (!canManageBo(req.user!, update) || !canWorkOnTask(req.user!, task)) {
       throw new AttachmentError("You can only add attachments to your own BO entry.", 403);
     }
   } else if (!canManageDrm(req.user!)) {
@@ -939,12 +969,12 @@ export async function removeAttachment(req: AuthRequest, res: Response): Promise
   const taskId = param(req, "id");
   const attachment = await prisma.taskAttachment.findFirst({
     where: { id: param(req, "attachmentId"), taskId },
-    include: { officerUpdate: true },
+    include: { officerUpdate: true, task: { include: { additionalAssignees: true } } },
   });
   if (!attachment) throw new AttachmentError("Attachment not found", 404);
 
   const allowed = attachment.officerUpdate
-    ? canManageBo(req.user!, attachment.officerUpdate)
+    ? canManageBo(req.user!, attachment.officerUpdate) && canWorkOnTask(req.user!, attachment.task)
     : canManageDrm(req.user!);
   if (!allowed) throw new AttachmentError("You cannot remove this attachment.", 403);
 

@@ -65,6 +65,8 @@ export type ApiTask = {
 officerUpdates: {
   id: string;
   actionPlan: string | null;
+  /** The BO's own Action Plan Date (YYYY-MM-DD). */
+  actionPlanDate?: string | null;
   remark: string | null;
 
   attachmentUrl: string | null;
@@ -281,6 +283,12 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   }
 
   return res.json() as Promise<T>;
+}
+
+/** Is this user the task's co-ordinator or one of its other officers? */
+export function isAssignedTo(task: Pick<ApiTask, "officer" | "additionalAssignees">, userId: string | undefined): boolean {
+  if (!userId) return false;
+  return task.officer?.id === userId || (task.additionalAssignees ?? []).some((a) => a.id === userId);
 }
 
 export function formatDate(iso: string): string {

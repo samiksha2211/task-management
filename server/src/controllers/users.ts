@@ -47,6 +47,19 @@ export async function listUsers(_req: AuthRequest, res: Response): Promise<void>
   });
 }
 
+/**
+ * Every designation in use, for the directory all BOs can see. Designations
+ * only: no names, e-mail addresses or mobile numbers.
+ */
+export async function listDesignations(_req: AuthRequest, res: Response): Promise<void> {
+  const users = await prisma.user.findMany({
+    select: { designation: true },
+    distinct: ["designation"],
+    orderBy: { designation: "asc" },
+  });
+  res.json({ designations: users.map((u) => u.designation) });
+}
+
 export async function getUser(req: AuthRequest, res: Response): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: param(req, "id") } });
   if (!user) {

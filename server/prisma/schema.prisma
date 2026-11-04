@@ -251,6 +251,8 @@ model TaskOfficerUpdate {
   taskId         String
   officerId      String
   actionPlan     String?
+  // The BO's own date for their Action Plan.
+  actionPlanDate DateTime? @db.Date
   remark         String?
   attachmentUrl  String?
   attachmentName String?

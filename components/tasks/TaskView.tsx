@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiFetch, formatDate, getRole, getStoredUser, type ApiTask } from "@/lib/api";
+import { apiFetch, formatDate, getRole, getStoredUser, isAssignedTo, type ApiTask } from "@/lib/api";
+import { taskDepartments } from "@/lib/departments";
 import {
   EMPTY_PENDING,
   addAttachments,
@@ -29,6 +30,7 @@ export default function TaskView({ id }: { id?: string }) {
   const [loading, setLoading] = useState(true);
 
   const [actionPlan, setActionPlan] = useState("");
+  const [actionPlanDate, setActionPlanDate] = useState("");
   const [boRemark, setBoRemark] = useState("");
   const [boAttachments, setBoAttachments] = useState<PendingAttachments>(EMPTY_PENDING);
 
@@ -37,6 +39,11 @@ export default function TaskView({ id }: { id?: string }) {
 
   const isAdmin = getRole() === "ADMIN";
   const myId = getStoredUser()?.id;
+
+  // A BO's own update being edited.
+  const [editing, setEditing] = useState<{ id: string; actionPlan: string; actionPlanDate: string; remark: string } | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // --------------------------------------------------
   // LOAD TASK
@@ -164,6 +171,7 @@ export default function TaskView({ id }: { id?: string }) {
 
     if (
       !actionPlan.trim() &&
+      !actionPlanDate &&
       !boRemark.trim() &&
       !hasPending(boAttachments)
     ) {
@@ -194,6 +202,7 @@ export default function TaskView({ id }: { id?: string }) {
           method: "POST",
           body: JSON.stringify({
             actionPlan: actionPlan.trim() || null,
+            actionPlanDate: actionPlanDate || null,
             remark: boRemark.trim() || null,
             attachments,
           }),
@@ -208,6 +217,7 @@ export default function TaskView({ id }: { id?: string }) {
 
       // Clear form after successful submission
       setActionPlan("");
+      setActionPlanDate("");
       setBoRemark("");
       setBoAttachments(EMPTY_PENDING);
 
@@ -220,6 +230,45 @@ export default function TaskView({ id }: { id?: string }) {
       );
     } finally {
       setSubmittingUpdate(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // EDIT OWN BO UPDATE
+  // --------------------------------------------------
+
+  const saveEdit = async () => {
+    if (!task || !editing) return;
+
+    setSavingEdit(true);
+    setEditError(null);
+
+    try {
+      const data = await apiFetch<{ task: ApiTask | null }>(
+        `/api/tasks/${task.id}/officer-updates/${editing.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            actionPlan: editing.actionPlan.trim() || null,
+            actionPlanDate: editing.actionPlanDate || null,
+            remark: editing.remark.trim() || null,
+          }),
+        }
+      );
+
+      if (data.task) {
+        setTask(data.task);
+      }
+
+      setEditing(null);
+    } catch (e) {
+      setEditError(
+        e instanceof Error
+          ? e.message
+          : "Failed to save your update."
+      );
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -287,6 +336,9 @@ export default function TaskView({ id }: { id?: string }) {
   // TASK DETAIL ROWS
   // --------------------------------------------------
 
+  // View access is for everyone; only assigned BOs can respond.
+  const assigned = isAssignedTo(task, myId);
+
   const rows = [
     {
       label: "Task",
@@ -300,6 +352,14 @@ export default function TaskView({ id }: { id?: string }) {
       label: "Co-ordinator Officer",
       value: task.officer.designation,
     },
+    ...(isAdmin
+      ? []
+      : [
+          {
+            label: "Department",
+            value: taskDepartments(task).join(", ") || "-",
+          },
+        ]),
     {
       label: "Other Officers",
       value:
@@ -309,6 +369,14 @@ export default function TaskView({ id }: { id?: string }) {
               .join(", ")
           : "-",
     },
+    ...(isAdmin
+      ? []
+      : [
+          {
+            label: "Action Plan",
+            value: task.actionPlan || "-",
+          },
+        ]),
     {
       label: "Action Plan TDC",
       value: task.actionPlanTdc
@@ -402,7 +470,10 @@ export default function TaskView({ id }: { id?: string }) {
 
             <h2>BO Updates</h2>
 
-            {task.officerUpdates.map((update) => (
+            {task.officerUpdates.map((update) => {
+              const mine = !isAdmin && assigned && update.officer.id === myId;
+
+              return (
               <div
                 className="bo-update-card"
                 key={update.id}
@@ -413,15 +484,74 @@ export default function TaskView({ id }: { id?: string }) {
                   {update.officer.designation}
                 </div>
 
-                <div>
-                  <strong>Action Plan:</strong>{" "}
-                  {update.actionPlan || "-"}
-                </div>
+                {editing?.id === update.id ? (
+                  <div className="bo-update-edit">
+                    <div className="bo-response-field">
+                      <label htmlFor="editActionPlan">Action Plan</label>
+                      <textarea
+                        id="editActionPlan"
+                        rows={4}
+                        value={editing.actionPlan}
+                        onChange={(e) => setEditing({ ...editing, actionPlan: e.target.value })}
+                      />
+                      <WordCount text={editing.actionPlan} />
+                    </div>
 
-                <div>
-                  <strong>BO&apos;s Remark:</strong>{" "}
-                  {update.remark || "-"}
-                </div>
+                    <div className="bo-response-field">
+                      <label htmlFor="editActionPlanDate">Action Plan Date</label>
+                      <input
+                        id="editActionPlanDate"
+                        type="date"
+                        value={editing.actionPlanDate}
+                        onChange={(e) => setEditing({ ...editing, actionPlanDate: e.target.value })}
+                      />
+                    </div>
+
+                    <div className="bo-response-field">
+                      <label htmlFor="editRemark">BO&apos;s Remark</label>
+                      <textarea
+                        id="editRemark"
+                        rows={4}
+                        value={editing.remark}
+                        onChange={(e) => setEditing({ ...editing, remark: e.target.value })}
+                      />
+                      <WordCount text={editing.remark} />
+                    </div>
+
+                    {editError && <p className="table-error">{editError}</p>}
+
+                    <button
+                      type="button"
+                      className="btn-status"
+                      onClick={saveEdit}
+                      disabled={savingEdit || overWordLimit(editing.actionPlan) || overWordLimit(editing.remark)}
+                    >
+                      {savingEdit ? "Saving..." : "Save"}
+                    </button>{" "}
+                    <button type="button" className="btn-back" onClick={() => setEditing(null)} disabled={savingEdit}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <strong>Action Plan:</strong>{" "}
+                      {update.actionPlan || "-"}
+                    </div>
+
+                    {(update.actionPlanDate || !isAdmin) && (
+                      <div>
+                        <strong>Action Plan Date:</strong>{" "}
+                        {update.actionPlanDate ? formatDate(update.actionPlanDate) : "-"}
+                      </div>
+                    )}
+
+                    <div>
+                      <strong>BO&apos;s Remark:</strong>{" "}
+                      {update.remark || "-"}
+                    </div>
+                  </>
+                )}
 
                 <div>
                   <strong>Date:</strong>{" "}
@@ -432,7 +562,7 @@ export default function TaskView({ id }: { id?: string }) {
 
                 <div>
                   <strong>Attachments:</strong>
-                  {isAdmin || update.officer.id === myId ? (
+                  {isAdmin || mine ? (
                     <AttachmentManager
                       attachments={update.attachments ?? []}
                       canEdit
@@ -444,15 +574,40 @@ export default function TaskView({ id }: { id?: string }) {
                   )}
                 </div>
 
+                {mine && editing?.id !== update.id && (
+                  <button
+                    type="button"
+                    className="btn-status bo-update-edit"
+                    onClick={() => {
+                      setEditError(null);
+                      setEditing({
+                        id: update.id,
+                        actionPlan: update.actionPlan ?? "",
+                        actionPlanDate: update.actionPlanDate ?? "",
+                        remark: update.remark ?? "",
+                      });
+                    }}
+                  >
+                    Edit my update
+                  </button>
+                )}
+
               </div>
-            ))}
+              );
+            })}
 
           </div>
         )}
 
-      {/* BO RESPONSE - OFFICER ONLY */}
+      {/* BO RESPONSE - ASSIGNED OFFICERS ONLY */}
 
-      {!isAdmin && (
+      {!isAdmin && !assigned && (
+        <p className="bo-view-only">
+          View only. Only the officers assigned to this task can submit updates.
+        </p>
+      )}
+
+      {!isAdmin && assigned && (
         <div className="bo-response-section">
 
           <h2>BO Response</h2>
@@ -472,6 +627,21 @@ export default function TaskView({ id }: { id?: string }) {
               rows={4}
             />
             <WordCount text={actionPlan} />
+          </div>
+
+          <div className="bo-response-field">
+            <label htmlFor="actionPlanDate">
+              Action Plan Date
+            </label>
+
+            <input
+              id="actionPlanDate"
+              type="date"
+              value={actionPlanDate}
+              onChange={(e) =>
+                setActionPlanDate(e.target.value)
+              }
+            />
           </div>
 
           <div className="bo-response-field">
@@ -536,7 +706,7 @@ export default function TaskView({ id }: { id?: string }) {
               Delete
             </button>
           </>
-        ) : (
+        ) : assigned ? (
           <button
             onClick={handleToggleStatus}
             className="btn-status"
@@ -545,7 +715,7 @@ export default function TaskView({ id }: { id?: string }) {
               ? "Mark as Pending"
               : "Mark as Completed"}
           </button>
-        )}
+        ) : null}
 
         <Link
           href="/tasks"

@@ -15,6 +15,7 @@ import {
   FaBars,
   FaTimes,
   FaCalendarCheck,
+  FaBuilding,
 } from "react-icons/fa";
 import { clearAuth, getStoredUser } from "@/lib/api";
 import { disconnectRealtime } from "@/lib/realtime";
@@ -86,6 +87,16 @@ export default function Sidebar() {
               <FaTasks />
               <span>Tasks</span>
             </Link>
+
+            {!isAdmin && (
+              <Link
+                href="/departments"
+                className={pathname === "/departments" ? "active" : ""}
+              >
+                <FaBuilding />
+                <span>Departments</span>
+              </Link>
+            )}
 
             {isAdmin && (
               <Link

@@ -90,6 +90,17 @@ Statuses: **Pending**, **Running**, **Completed**, and **Overdue**. Overdue is d
 a task is *Overdue* when its status is `Pending` and `dueDate` is before today. A **Running**
 task (work in progress) is never shown as Overdue, whatever its execution date.
 
+## Access for Branch Officers
+
+| Access | Who | What |
+| ------ | --- | ---- |
+| View | Every BO | All departments, designations, tasks, and other BOs' updates (no department isolation) |
+| Edit | BOs assigned to the task | Submit updates (Action Plan, Action Plan Date, BO Remark, attachments), edit their own, change the task's status |
+| Administrative | DRM only | Task details, DRM remarks, review frequency, Allocated Monday, deleting tasks or BO entries |
+
+The server enforces these rules. A task's department comes from its concerned officers'
+designations (`lib/departments.ts`); BOs get a **Departments** page and a department filter on Tasks.
+
 ## Useful scripts
 
 Frontend (root):

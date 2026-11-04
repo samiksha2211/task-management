@@ -150,6 +150,8 @@ export interface SerializedTask {
     id: string;
 
     actionPlan: string | null;
+    /** The BO's own Action Plan Date (YYYY-MM-DD). */
+    actionPlanDate: string | null;
     remark: string | null;
 
     attachmentUrl: string | null;
@@ -287,6 +289,7 @@ export function serializeTask(
         id: update.id,
 
         actionPlan: update.actionPlan ?? null,
+        actionPlanDate: update.actionPlanDate ? update.actionPlanDate.toISOString().slice(0, 10) : null,
         remark: update.remark ?? null,
 
         attachmentUrl: boOf(update.id)[0]?.url ?? null,
