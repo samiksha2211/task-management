@@ -1,0 +1,140 @@
+.logins-intro {
+  margin: 0 0 16px;
+  max-width: 760px;
+  color: #64748b;
+}
+
+.logins-muted {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.logins-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.logins-toolbar input {
+  flex: 0 1 300px;
+  padding: 8px 12px;
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  border-radius: 8px;
+}
+
+.logins-saved {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #e7f6ec;
+  color: #17643a;
+}
+
+.logins-saved code {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.logins-group {
+  margin-bottom: 20px;
+}
+
+.logins-group h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.logins-table-wrap {
+  overflow-x: auto;
+}
+
+.logins-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.logins-table th {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.3);
+  color: #64748b;
+  font-size: 12px;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.logins-table td {
+  padding: 10px;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.2);
+  vertical-align: top;
+}
+
+.logins-designation {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.logins-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #fff4e5;
+  color: #8a4b00;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.logins-chip.is-ready {
+  background: #e7f6ec;
+  color: #17643a;
+}
+
+.logins-actions {
+  width: 300px;
+}
+
+.logins-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 240px;
+}
+
+.logins-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.logins-form input {
+  padding: 7px 10px;
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  border-radius: 8px;
+}
+
+.logins-form-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.logins-link {
+  align-self: flex-start;
+  padding: 0;
+  margin-left: 8px;
+  border: 0;
+  background: none;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.logins-form .logins-link {
+  margin-left: 0;
+}

@@ -46,7 +46,6 @@ router.get("/cron/task-reminders", async (req, res, next) => {
 });
 
 router.post("/auth/login", auth.login);
-router.post("/auth/register", auth.register);
 router.get("/auth/me", requireAuth, auth.me);
 router.patch("/auth/me", requireAuth, auth.updateMe);
 router.post("/auth/change-password", requireAuth, auth.changePassword);
@@ -54,6 +53,8 @@ router.post("/auth/forgot-password", auth.forgotPassword);
 router.post("/auth/reset-password", auth.resetPassword);
 
 router.get("/users/designations", requireAuth, users.listDesignations);
+router.get("/users/logins", requireAuth, requireAdmin, users.listLogins);
+router.put("/users/logins", requireAuth, requireAdmin, users.setLogin);
 router.get("/users", requireAuth, requireAdmin, users.listUsers);
 router.post("/users", requireAuth, requireAdmin, users.createUser);
 router.post(

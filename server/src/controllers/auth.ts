@@ -13,13 +13,6 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-const registerSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  email: z.string().email(),
-  password: z.string().min(6),
-  designation: z.string().min(1).max(100),
-});
-
 const emailSchema = z.object({
   email: z.string().email(),
 });
@@ -79,31 +72,6 @@ export async function login(req: AuthRequest, res: Response): Promise<void> {
 
   const token = signToken({ userId: user.id, role: user.role });
   res.json({ token, user: publicUser(user) });
-}
-
-export async function register(req: AuthRequest, res: Response): Promise<void> {
-  const body = validate(registerSchema, req.body);
-  const email = body.email.toLowerCase().trim();
-
-  const exists = await prisma.user.findUnique({ where: { email } });
-  if (exists) {
-    res.status(409).json({ error: "An account with this email already exists" });
-    return;
-  }
-
-  const user = await prisma.user.create({
-    data: {
-      name: body.name?.trim() || body.designation.trim(),
-      email,
-      password: await bcrypt.hash(body.password, 10),
-      designation: body.designation.trim(),
-      role: "OFFICER",
-    },
-  });
-
-  const token = signToken({ userId: user.id, role: user.role });
-  res.status(201).json({ token, user: publicUser(user) });
-  broadcast("user:updated", { id: user.id });
 }
 
 export function me(req: AuthRequest, res: Response): void {

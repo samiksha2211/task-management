@@ -98,6 +98,11 @@ task (work in progress) is never shown as Overdue, whatever its execution date.
 | Edit | BOs assigned to the task | Submit updates (Action Plan, Action Plan Date, BO Remark, attachments), edit their own, change the task's status |
 | Administrative | DRM only | Task details, DRM remarks, review frequency, Allocated Monday, deleting tasks or BO entries |
 
+BO logins are created by the DRM on the **Logins** page (`/logins`), one per designation, grouped by
+department; public registration is closed. A login is set on the account that already holds the
+designation's tasks. Duplicate accounts for the same designation are merged into it at that point.
+BOs change their password under Settings.
+
 The server enforces these rules. A task's department comes from its concerned officers'
 designations (`lib/departments.ts`); BOs get a **Departments** page and a department filter on Tasks.
 

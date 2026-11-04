@@ -1,7 +1,6 @@
-import RegisterForm from "@/components/auth/RegisterForm";
-import "../globals.css";
-import "@/components/login/LoginForm.css";
+import { redirect } from "next/navigation";
 
+// Logins are created by the DRM on the Logins page.
 export default function RegisterPage() {
-  return <RegisterForm />;
+  redirect("/");
 }

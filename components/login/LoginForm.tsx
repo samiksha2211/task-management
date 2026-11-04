@@ -312,12 +312,8 @@ export default function LoginForm() {
 
           <div className="create-account-row">
             <span>
-              Don&apos;t have an account?
+              Need a login? Please contact the DRM office.
             </span>
-
-            <Link href="/register">
-              Create Account
-            </Link>
           </div>
         </form>
       </div>

@@ -16,6 +16,7 @@ import {
   FaTimes,
   FaCalendarCheck,
   FaBuilding,
+  FaKey,
 } from "react-icons/fa";
 import { clearAuth, getStoredUser } from "@/lib/api";
 import { disconnectRealtime } from "@/lib/realtime";
@@ -115,6 +116,16 @@ export default function Sidebar() {
               >
                 <FaUsers />
                 <span>Designation</span>
+              </Link>
+            )}
+
+            {isAdmin && (
+              <Link
+                href="/logins"
+                className={pathname === "/logins" ? "active" : ""}
+              >
+                <FaKey />
+                <span>Logins</span>
               </Link>
             )}
 
