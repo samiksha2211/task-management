@@ -1,10 +1,11 @@
-// The 13 departments and which one a designation belongs to. A task's
+// The departments and which one a designation belongs to. A task's
 // department comes from its concerned officers, so nothing is stored per task.
 
 import { DESIGNATIONS } from "./designations";
 
 export const DEPARTMENTS = [
   "General Administration",
+  "Personnel",
   "Electrical",
   "S&T",
   "Medical",
@@ -27,18 +28,19 @@ const ALL_BO_DESIGNATIONS = /^all (concerned )?bos$/i;
 // Matches variants such as Sr.DEE/Coaching as well as Sr.DEE/Chg.
 const RULES: [RegExp, Department][] = [
   [/^(sr\.?\s*)?denhm\b/i, "Environment & Housing Management"],
-  [/^((sr\.?\s*)?den\b|all sr\.?\s*dens\b|cpm\/gsu)/i, "Engineering"],
-  [/^((sr\.?\s*)?dee\b|principal\/etc)/i, "Electrical"],
+  [/^((sr\.?\s*)?den\b|all sr\.?\s*dens\b)/i, "Engineering"],
+  [/^(sr\.?\s*)?dee\b/i, "Electrical"],
   [/^((sr\.?\s*)?dste\b|all sr\.?\s*dstes\b|je\/tele)/i, "S&T"],
-  [/^((sr\.?\s*)?dme\b|(sr\.?\s*)?dauo\b)/i, "Mechanical"],
-  [/^((sr\.?\s*)?dom\b|dy\.?\s*ctm\b)/i, "Operating"],
+  [/^(sr\.?\s*)?dme\b/i, "Mechanical"],
+  [/^(sr\.?\s*)?dom\b/i, "Operating"],
   [/^(sr\.?\s*)?dcm\b/i, "Commercial"],
   [/^(sr\.?\s*)?dfm\b/i, "Finance"],
   [/^cms\b/i, "Medical"],
   [/^(sr\.?\s*)?dmm\b/i, "Stores"],
   [/^(sr\.?\s*)?dso\b/i, "Safety"],
   [/^(sr\.?\s*)?dsc\b/i, "Security"],
-  [/^(drm\b|adrm\b|sd\/|rajbhasha\b|pro\/|(sr\.?\s*)?dpo\b|ps-\d|senior clerk\b)/i, "General Administration"],
+  [/^(sr\.?\s*)?dpo\b/i, "Personnel"],
+  [/^(drm\b|adrm\b|sd\/|rajbhasha\b|pro\/|ps-\d|senior clerk\b|principal\/etc|cpm\/gsu|dy\.?\s*ctm\b|(sr\.?\s*)?dauo\b)/i, "General Administration"],
 ];
 
 export function isDepartment(value: string | null | undefined): value is Department {

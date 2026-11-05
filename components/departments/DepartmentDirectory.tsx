@@ -13,7 +13,7 @@ function tasksLink(department: string | null, designation?: string): string {
   return `/tasks?${params.toString()}`;
 }
 
-/** All 13 departments and their BO designations, for every BO. */
+/** All departments and their BO designations, for every BO. */
 export default function DepartmentDirectory() {
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [inUse, setInUse] = useState<string[]>([]);
