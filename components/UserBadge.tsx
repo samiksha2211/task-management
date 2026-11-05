@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { clearAuth, getStoredUser } from "@/lib/api";
+import { clearAuth, getStoredUser, USER_CHANGED_EVENT } from "@/lib/api";
 import { disconnectRealtime } from "@/lib/realtime";
 
 export default function UserBadge() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [, refresh] = useReducer((n: number) => n + 1, 0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const user = getStoredUser();
   const designation = user?.designation || user?.name || "User";
   const initial = designation.charAt(0).toUpperCase();
+
+  useEffect(() => {
+    window.addEventListener(USER_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(USER_CHANGED_EVENT, refresh);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -57,7 +63,7 @@ export default function UserBadge() {
             initial
           )}
         </div>
-        <span>{designation}</span>
+        <span className="profile-designation">{designation}</span>
       </div>
 
       {open && (

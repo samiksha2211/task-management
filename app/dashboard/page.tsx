@@ -6,7 +6,6 @@ import RecentTasks from "../../components/dashboard/RecentTasks";
 import TaskStatusChart from "@/components/dashboard/charts/TaskStatusChart";
 import AuthGuard from "@/components/AuthGuard";
 import TopSearchBar from "@/components/TopSearchBar";
-import UserBadge from "@/components/UserBadge";
 import "./dashboard.css";
 
 export default function Dashboard() {
@@ -19,9 +18,7 @@ export default function Dashboard() {
 
         {/* Top Navigation */}
         <div className="top-navbar">
-          <TopSearchBar>
-            <UserBadge />
-          </TopSearchBar>
+          <TopSearchBar />
         </div>
 
         {/* Welcome */}

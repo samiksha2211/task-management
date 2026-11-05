@@ -356,14 +356,21 @@ html:not([data-theme="dark"]) body .form-group .array-field-row > button:hover {
     font-size: 22px;
   }
 
-  /* Search box and icon buttons on one row instead of stacked */
+  /* Logged-in officer on its own row, then search and icon buttons on one row */
   html body .top-right {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     width: 100%;
   }
 
+  html body .top-right .profile-wrap {
+    order: -1;
+    flex: 0 0 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+
   html body .top-right .search-box {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     width: auto;
     max-width: none;
     min-width: 0;

@@ -466,6 +466,11 @@ td{
     position:relative;
 }
 
+.profile-designation{
+    font-weight:600;
+    white-space:nowrap;
+}
+
 .profile-dropdown{
     position:absolute;
     top:calc(100% + 10px);
@@ -1207,9 +1212,6 @@ td{
     .notification-dropdown{
         width:min(340px, calc(100vw - 24px));
         right:0;
-    }
-    .profile span{
-        display:none;
     }
     .chart-card{
         height:auto;

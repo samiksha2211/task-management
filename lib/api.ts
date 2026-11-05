@@ -153,6 +153,9 @@ export function setToken(token: string | null, remember = true): void {
   window.localStorage.setItem(REMEMBER_KEY, remember ? "1" : "0");
 }
 
+/** Fired when the stored user changes, so the top bar can show it at once. */
+export const USER_CHANGED_EVENT = "railwork:user-changed";
+
 export function setUser(user: ApiUser | null, remember = true): void {
   if (typeof window === "undefined") return;
   if (user) {
@@ -164,6 +167,7 @@ export function setUser(user: ApiUser | null, remember = true): void {
     window.localStorage.removeItem(USER_KEY);
     window.sessionStorage.removeItem(USER_KEY);
   }
+  window.dispatchEvent(new Event(USER_CHANGED_EVENT));
 }
 
 export function getStoredUser(): ApiUser | null {

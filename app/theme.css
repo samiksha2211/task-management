@@ -139,6 +139,10 @@ html[data-theme="dark"] .settings-card label{
     color:#cbd5e1;
 }
 
+html[data-theme="dark"] .settings-card label.avatar-btn{
+    color:#fff;
+}
+
 html[data-theme="dark"] .theme-option{
     background:#0f172a;
     border-color:#334155;

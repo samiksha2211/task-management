@@ -3,12 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import NotificationBell from "@/components/NotificationBell";
+import UserBadge from "@/components/UserBadge";
 
-export default function TopSearchBar({
-  children,
-}: {
-  children?: React.ReactNode;
-}) {
+export default function TopSearchBar() {
   const router = useRouter();
   const [query, setQuery] = useState("");
 
@@ -41,7 +38,7 @@ export default function TopSearchBar({
 
       <NotificationBell />
 
-      {children}
+      <UserBadge />
     </div>
   );
 }

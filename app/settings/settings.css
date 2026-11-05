@@ -138,6 +138,11 @@
     width:auto;
 }
 
+.settings-card label.avatar-btn{
+    margin:0;
+    color:#fff;
+}
+
 .avatar-btn:hover{
     background:#0d3663;
 }
