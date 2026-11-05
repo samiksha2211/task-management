@@ -40,6 +40,55 @@ after(async () => {
   await t?.close();
 });
 
+describe("tasks assigned to a group", () => {
+  const groupTask = async (designation: string, additional?: string) => {
+    const ensure = async (d: string) => (await t.api("POST", "/api/users/ensure-by-designation", { designation: d })).json.user.id;
+    const res = await t.api("POST", "/api/tasks", {
+      title: `For ${designation}`,
+      date: today,
+      dueDate: addDays(today, 30),
+      officerId: await ensure(designation),
+      additionalOfficerIds: additional ? [await ensure(additional)] : [],
+    });
+    assert.equal(res.status, 201, JSON.stringify(res.json));
+    return `/api/tasks/${res.json.task.id}`;
+  };
+  const respond = (url: string, token: string) => t.api("POST", `${url}/officer-updates`, { remark: "Done from my side" }, token);
+
+  for (const group of ["All BOs", "All Concerned BOs"]) {
+    test(`every BO can respond on a task for ${group}`, async () => {
+      const url = await groupTask(group);
+      for (const token of [t.officerToken, t.otherOfficerToken, thirdToken]) {
+        assert.equal((await respond(url, token)).status, 201);
+      }
+      const updates = (await t.api("GET", url)).json.task.officerUpdates;
+      assert.equal(updates.length, 3, "each BO keeps their own entry");
+    });
+  }
+
+  test("a group counts when it is an additional officer too", async () => {
+    const url = await groupTask("Sr.DFM", "All Concerned BOs");
+    assert.equal((await respond(url, thirdToken)).status, 201);
+  });
+
+  test("All Sr.DENs and All Sr.DSTEs are limited to their own officers", async () => {
+    const dens = await groupTask("All Sr.DENs");
+    assert.equal((await respond(dens, t.officerToken)).status, 201, "Sr.DEN/CO");
+    assert.equal((await respond(dens, t.otherOfficerToken)).status, 403, "Sr.DEE/G");
+    const dstes = await groupTask("All Sr.DSTEs");
+    assert.equal((await respond(dstes, t.officerToken)).status, 403, "Sr.DEN/CO");
+  });
+
+  test("a BO edits only their own entry, and cannot close the task for everyone", async () => {
+    const url = await groupTask("All BOs");
+    const mine = (await respond(url, t.officerToken)).json.update.id;
+    assert.equal((await t.api("PUT", `${url}/officer-updates/${mine}`, { remark: "Revised" }, t.officerToken)).status, 200);
+    assert.equal((await t.api("PUT", `${url}/officer-updates/${mine}`, { remark: "Hacked" }, thirdToken)).status, 403);
+    assert.equal((await t.api("PATCH", `${url}/status`, { status: "Completed" }, t.officerToken)).status, 403);
+    assert.equal((await t.api("PATCH", `${url}/status`, { status: "Completed" })).status, 200, "the DRM can");
+  });
+});
+
 describe("view access: every BO sees everything", () => {
   test("a BO who is not assigned sees the task, its officers and other BOs' updates", async () => {
     const created = await t.api(

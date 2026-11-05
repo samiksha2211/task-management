@@ -67,6 +67,23 @@ function concernedDesignations(task: ConcernedOfficers): string[] {
   );
 }
 
+// Who belongs to a group designation other than "All BOs".
+const GROUP_MEMBERS: [RegExp, RegExp][] = [
+  [/^all sr\.?\s*dens$/i, /^sr\.?\s*den\b/i],
+  [/^all sr\.?\s*dstes$/i, /^sr\.?\s*dste\b/i],
+];
+
+/** Is the task assigned to a group that this designation belongs to? */
+export function inAssignedGroup(task: ConcernedOfficers, designation: string | null | undefined): boolean {
+  const value = (designation ?? "").trim();
+  if (!value) return false;
+  return concernedDesignations(task).some(
+    (group) =>
+      isAllBoDesignation(group) ||
+      GROUP_MEMBERS.some(([name, member]) => name.test(group.trim()) && member.test(value))
+  );
+}
+
 /** Departments concerned with a task, the co-ordinator's first. */
 export function taskDepartments(task: ConcernedOfficers): string[] {
   const designations = concernedDesignations(task);

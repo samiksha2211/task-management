@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch, formatDate, getRole, getStoredUser, isAssignedTo, type ApiTask } from "@/lib/api";
+import { inAssignedGroup } from "@/lib/departments";
 import { taskDepartments } from "@/lib/departments";
 import {
   EMPTY_PENDING,
@@ -336,8 +337,10 @@ export default function TaskView({ id }: { id?: string }) {
   // TASK DETAIL ROWS
   // --------------------------------------------------
 
-  // View access is for everyone; only assigned BOs can respond.
+  // View access is for everyone; assigned BOs and members of an assigned group
+  // can respond. Only officers named on the task change its status.
   const assigned = isAssignedTo(task, myId);
+  const canRespond = assigned || inAssignedGroup(task, getStoredUser()?.designation);
 
   const rows = [
     {
@@ -471,7 +474,7 @@ export default function TaskView({ id }: { id?: string }) {
             <h2>BO Updates</h2>
 
             {task.officerUpdates.map((update) => {
-              const mine = !isAdmin && assigned && update.officer.id === myId;
+              const mine = !isAdmin && canRespond && update.officer.id === myId;
 
               return (
               <div
@@ -601,13 +604,13 @@ export default function TaskView({ id }: { id?: string }) {
 
       {/* BO RESPONSE - ASSIGNED OFFICERS ONLY */}
 
-      {!isAdmin && !assigned && (
+      {!isAdmin && !canRespond && (
         <p className="bo-view-only">
           View only. Only the officers assigned to this task can submit updates.
         </p>
       )}
 
-      {!isAdmin && assigned && (
+      {!isAdmin && canRespond && (
         <div className="bo-response-section">
 
           <h2>BO Response</h2>

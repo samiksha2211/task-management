@@ -205,12 +205,39 @@ function isAssigned(
   return task.officerId === user.id || task.additionalAssignees.some((a) => a.officerId === user.id);
 }
 
-/** DRM always; a BO only on tasks assigned to them. */
-function canWorkOnTask(
-  user: { id: string; role: string },
-  task: { officerId: string; additionalAssignees: { officerId: string }[] }
+// Designations that stand for a group of BOs, and who belongs to each.
+const BO_GROUPS: [RegExp, RegExp][] = [
+  [/^all (concerned )?bos$/i, /./],
+  [/^all sr\.?\s*dens$/i, /^sr\.?\s*den\b/i],
+  [/^all sr\.?\s*dstes$/i, /^sr\.?\s*dste\b/i],
+];
+
+/** What canWorkOnTask needs to know about a task's officers. */
+const taskOfficersInclude = {
+  officer: { select: { designation: true } },
+  additionalAssignees: { include: { officer: { select: { designation: true } } } },
+};
+
+function inAssignedGroup(
+  designation: string,
+  task: { officer: { designation: string }; additionalAssignees: { officer: { designation: string } }[] }
 ): boolean {
-  return user.role === "ADMIN" || isAssigned(user, task);
+  const assigned = [task.officer.designation, ...task.additionalAssignees.map((a) => a.officer.designation)];
+  return assigned.some((group) =>
+    BO_GROUPS.some(([name, member]) => name.test(group.trim()) && member.test(designation.trim()))
+  );
+}
+
+/** DRM always; a BO on tasks assigned to them or to a group they belong to. */
+function canWorkOnTask(
+  user: { id: string; role: string; designation: string },
+  task: {
+    officerId: string;
+    officer: { designation: string };
+    additionalAssignees: { officerId: string; officer: { designation: string } }[];
+  }
+): boolean {
+  return user.role === "ADMIN" || isAssigned(user, task) || inAssignedGroup(user.designation, task);
 }
 
 // Only what the client needs; never the officer's password or reset token.
@@ -623,9 +650,7 @@ export async function createOfficerUpdate(
       id: taskId,
       deletedAt: null,
     },
-    include: {
-      additionalAssignees: true,
-    },
+    include: taskOfficersInclude,
   });
 
   if (!task) {
@@ -693,7 +718,7 @@ export async function updateOfficerUpdate(
       id: updateId,
       taskId,
     },
-    include: { task: { include: { additionalAssignees: true } } },
+    include: { task: { include: taskOfficersInclude } },
   });
 
   if (!existingUpdate) {
@@ -818,7 +843,8 @@ export async function updateTaskStatus(req: AuthRequest, res: Response): Promise
     res.status(404).json({ error: "Task not found" });
     return;
   }
-  if (!canWorkOnTask(req.user!, existing)) {
+  // Group members respond individually; one of them must not close the task for all.
+  if (req.user!.role !== "ADMIN" && !isAssigned(req.user!, existing)) {
     res.status(403).json({ error: "You are not assigned to this task." });
     return;
   }
@@ -931,7 +957,7 @@ export async function addAttachments(req: AuthRequest, res: Response): Promise<v
     throw new AttachmentError("Choose at least one file or paste a Google Sheets link.");
   }
 
-  const task = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, include: { additionalAssignees: true } });
+  const task = await prisma.task.findFirst({ where: { id: taskId, deletedAt: null }, include: taskOfficersInclude });
   if (!task) throw new AttachmentError("Task not found", 404);
 
   if (body.officerUpdateId) {
@@ -969,7 +995,7 @@ export async function removeAttachment(req: AuthRequest, res: Response): Promise
   const taskId = param(req, "id");
   const attachment = await prisma.taskAttachment.findFirst({
     where: { id: param(req, "attachmentId"), taskId },
-    include: { officerUpdate: true, task: { include: { additionalAssignees: true } } },
+    include: { officerUpdate: true, task: { include: taskOfficersInclude } },
   });
   if (!attachment) throw new AttachmentError("Attachment not found", 404);
 
