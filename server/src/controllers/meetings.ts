@@ -242,10 +242,7 @@ function pdfRows(tasks: ExportTask[], from: ISODate, scheduledOn?: ISODate, with
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
     return {
       ...row,
-      latestBoRemark: latestBo
-        ? `${latestBo.remark!.trim()}
-— ${latestBo.officer.designation}, ${fmt(toISODate(latestBo.createdAt))}`
-        : "-",
+      latestBoRemark: latestBo ? latestBo.remark!.trim() : "-",
       review: view.reviewCode
         ? withAllocation && view.allocatedMonday
           ? `${view.reviewCode}\n${view.allocatedMonday.replace(" · alternate weeks", ", alt. weeks")}`
@@ -798,7 +795,8 @@ export async function exportAgenda(req: AuthRequest, res: Response): Promise<voi
         status: item.status,
         review: item.frequency,
         allocatedMonday: rule ? `${fmt(meetingDate)}\n(${rule})` : fmt(meetingDate),
-        boRemark: bo ? `${bo.remark ?? "(file only)"}\n— ${bo.by}, ${fmt(bo.at)}` : "-",
+        // Only the remark itself: not who entered it or when.
+        boRemark: bo?.remark?.trim() || (bo?.files.length ? "" : "-"),
         boAttachment: bo ? bo.files.map((f) => f.url).join("\n") : "",
       };
     });
