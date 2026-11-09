@@ -191,7 +191,7 @@ const AGENDA_LABELS: Partial<Record<PdfColumnKey, string>> = {
   date: "Date",
   review: "Review Frequency",
   allocatedMonday: "Allocated Monday",
-  task: "Task",
+  task: "Task / Description",
   coordinatorOfficer: "Coordinator Officer",
   otherOfficers: "Other Officers",
   actionPlan: "Action Plan",
@@ -793,7 +793,6 @@ export async function exportAgenda(req: AuthRequest, res: Response): Promise<voi
         ...row,
         serial: i + 1,
         task: task.flaggedForReview ? `[IMPORTANT] ${task.title}` : task.title,
-        description: "",
         // The agenda shows the Action Plan entered for the task.
         actionPlan: task.actionPlan?.trim() || "-",
         status: item.status,
