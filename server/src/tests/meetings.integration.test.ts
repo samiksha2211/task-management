@@ -179,7 +179,7 @@ describe("review calendar", () => {
     assert.equal(res.status, 200, JSON.stringify(res.json));
     assert.equal(res.json.updated, 1);
     for (const cycle of ["WEEKLY", "FORTNIGHTLY", "MONTHLY", "ALL"]) {
-      for (const status of ["all", "pending_overdue"]) {
+      for (const status of ["all", "pending_overdue", "pending_overdue_running"]) {
         const pdf = await api("GET", `/api/meetings/register/pdf?cycle=${cycle}&status=${status}`);
         assert.equal(pdf.status, 200, `${cycle} ${status}`);
         assert.ok(isPdf(pdf.buffer));

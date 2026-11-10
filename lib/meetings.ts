@@ -309,7 +309,14 @@ async function download(url: string, fallbackName: string): Promise<void> {
   URL.revokeObjectURL(href);
 }
 
-export type StatusFilter = "all" | "pending" | "running" | "overdue" | "completed" | "pending_overdue";
+export type StatusFilter =
+  | "all"
+  | "pending"
+  | "running"
+  | "overdue"
+  | "completed"
+  | "pending_overdue"
+  | "pending_overdue_running";
 
 export const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "All Statuses" },
@@ -318,11 +325,13 @@ export const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "overdue", label: "Overdue" },
   { value: "completed", label: "Completed" },
   { value: "pending_overdue", label: "Pending/Overdue" },
+  { value: "pending_overdue_running", label: "Pending / Overdue / Running" },
 ];
 
 export function matchesStatus(status: TaskStatusLabel, filter: StatusFilter): boolean {
   if (filter === "all") return true;
-  if (filter === "pending_overdue") return status !== "Completed";
+  if (filter === "pending_overdue") return status === "Pending" || status === "Overdue";
+  if (filter === "pending_overdue_running") return status !== "Completed";
   return status.toLowerCase() === filter;
 }
 

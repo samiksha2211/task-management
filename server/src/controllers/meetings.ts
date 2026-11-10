@@ -201,7 +201,10 @@ const AGENDA_LABELS: Partial<Record<PdfColumnKey, string>> = {
   boRemark: "Latest BO Remark / File",
 };
 
-type StatusChoice = "all" | "pending" | "running" | "overdue" | "completed" | "pending_overdue";
+const STATUS_CHOICES = [
+  "all", "pending", "running", "overdue", "completed", "pending_overdue", "pending_overdue_running",
+] as const;
+type StatusChoice = (typeof STATUS_CHOICES)[number];
 
 const STATUS_CHOICE_LABEL: Record<StatusChoice, string> = {
   all: "All statuses",
@@ -210,12 +213,14 @@ const STATUS_CHOICE_LABEL: Record<StatusChoice, string> = {
   overdue: "Overdue",
   completed: "Completed",
   pending_overdue: "Pending / Overdue",
+  pending_overdue_running: "Pending / Overdue / Running",
 };
 
 function matchesStatus(task: Task, choice: StatusChoice): boolean {
   const status = statusLabel(task);
   if (choice === "all") return true;
-  if (choice === "pending_overdue") return status !== "Completed";
+  if (choice === "pending_overdue") return status === "Pending" || status === "Overdue";
+  if (choice === "pending_overdue_running") return status !== "Completed";
   return status.toLowerCase() === choice;
 }
 
@@ -285,12 +290,12 @@ function sendPdf(res: Response, pdf: Buffer, filename: string): void {
 
 const registerPdfQuery = z.object({
   cycle: z.enum(["WEEKLY", "FORTNIGHTLY", "MONTHLY", "ALL"]),
-  status: z.enum(["all", "pending", "running", "overdue", "completed", "pending_overdue"]).default("all"),
+  status: z.enum(STATUS_CHOICES).default("all"),
 });
 
 /**
  * PDF of every task with one review frequency, or all three (one section
- * each). All statuses unless a status is chosen; "pending_overdue" = not completed.
+ * each). All statuses unless a status is chosen; "pending_overdue_running" = not completed.
  * Read-only: nothing is stored when it is generated.
  */
 export async function downloadRegisterPdf(req: AuthRequest, res: Response): Promise<void> {

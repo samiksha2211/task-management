@@ -954,9 +954,9 @@ function AgendaView({
   );
 }
 
-/** One PDF with W, FT and M sections; Pending/Overdue by default. */
+/** One PDF with W, FT and M sections; every open task (not Completed) by default. */
 function AllCyclesDownload() {
-  const [status, setStatus] = useState<StatusFilter>("pending_overdue");
+  const [status, setStatus] = useState<StatusFilter>("pending_overdue_running");
   const [downloading, setDownloading] = useState(false);
   const download = async () => {
     setDownloading(true);
