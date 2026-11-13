@@ -195,3 +195,66 @@ describe("review calendar", () => {
     assert.equal((await api("GET", `/api/meetings/agenda?date=${addDays(upcoming, 2)}`)).status, 400);
   });
 });
+
+describe("designation filter", () => {
+  before(async () => {
+    const dfm = (await api("POST", "/api/users/ensure-by-designation", { designation: "Sr.DFM" })).json.user.id;
+    const weekly = { discussionFrequency: "WEEKLY" };
+    await createTask("Desig: Sr.DEN/CO coordinates", weekly);
+    await createTask("Desig: Sr.DEE/G coordinates", { ...weekly, officerId: t.otherOfficerId });
+    await createTask("Desig: Sr.DFM with Sr.DEE/G", { ...weekly, officerId: dfm, additionalOfficerIds: [t.otherOfficerId] });
+  });
+
+  const agendaCsv = async (query: string) => {
+    const res = await api("GET", `/api/meetings/${upcoming}/export?format=csv${query}`);
+    assert.equal(res.status, 200);
+    return res.buffer.toString("utf8");
+  };
+
+  test("register lists every officer's designation on a task", async () => {
+    const tasks = (await api("GET", "/api/meetings/register")).json.tasks as { title: string; officers: string[] }[];
+    const find = (title: string) => tasks.find((x) => x.title === title)!;
+    assert.deepEqual(find("Desig: Sr.DEN/CO coordinates").officers, ["Sr.DEN/CO"]);
+    assert.deepEqual(find("Desig: Sr.DFM with Sr.DEE/G").officers, ["Sr.DFM", "Sr.DEE/G"]);
+  });
+
+  test("the designations offered come from the officer records", async () => {
+    const list = (await api("GET", "/api/users/designations")).json.designations as string[];
+    for (const d of ["Sr.DEN/CO", "Sr.DEE/G", "Sr.DFM"]) assert.ok(list.includes(d), d);
+  });
+
+  test("agenda export: one, several or all designations", async () => {
+    const all = await agendaCsv("");
+    for (const title of ["Sr.DEN/CO coordinates", "Sr.DEE/G coordinates", "Sr.DFM with Sr.DEE/G"]) assert.ok(all.includes(title), title);
+
+    const dee = await agendaCsv(`&designation=${encodeURIComponent("Sr.DEE/G")}`);
+    assert.ok(dee.includes("Sr.DEE/G coordinates"), "as coordinator");
+    assert.ok(dee.includes("Sr.DFM with Sr.DEE/G"), "as other officer");
+    assert.ok(!dee.includes("Sr.DEN/CO coordinates"));
+    assert.ok(!dee.includes("Weekly task"), "tasks of other designations are left out");
+
+    const two = await agendaCsv(`&designation=${encodeURIComponent("Sr.DEN/CO")}&designation=${encodeURIComponent("Sr.DFM")}`);
+    assert.ok(two.includes("Sr.DEN/CO coordinates") && two.includes("Sr.DFM with Sr.DEE/G"));
+    assert.ok(!two.includes("Sr.DEE/G coordinates"));
+
+    const none = await agendaCsv(`&designation=${encodeURIComponent("Sr.DSO")}`);
+    assert.ok(!none.includes("Desig:"), "a designation without tasks gives an empty agenda");
+  });
+
+  test("register PDFs accept the filter with any status", async () => {
+    for (const cycle of ["WEEKLY", "ALL"]) {
+      for (const status of ["all", "pending_overdue_running"]) {
+        const pdf = await api("GET", `/api/meetings/register/pdf?cycle=${cycle}&status=${status}&designation=Sr.DEE%2FG&designation=Sr.DFM`);
+        assert.equal(pdf.status, 200, `${cycle} ${status}`);
+        assert.ok(isPdf(pdf.buffer));
+      }
+    }
+  });
+
+  test("filtering changes nothing in the schedule", async () => {
+    const before = JSON.stringify((await api("GET", "/api/meetings/register")).json.tasks);
+    await agendaCsv("&designation=Sr.DFM");
+    await api("GET", "/api/meetings/register/pdf?cycle=ALL&designation=Sr.DFM");
+    assert.equal(JSON.stringify((await api("GET", "/api/meetings/register")).json.tasks), before);
+  });
+});

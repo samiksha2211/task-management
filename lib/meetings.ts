@@ -118,6 +118,8 @@ export interface RegisterTask {
   taskNumber: number;
   title: string;
   officer: string;
+  /** Designations of the coordinator and the other officers. */
+  officers: string[];
   status: TaskStatusLabel;
   dueDate: string;
   cycle: Frequency | null;
@@ -335,9 +337,27 @@ export function matchesStatus(status: TaskStatusLabel, filter: StatusFilter): bo
   return status.toLowerCase() === filter;
 }
 
-/** Cycle PDF in the Task Report layout. "ALL" = Weekly, Fortnightly and Monthly sections in one PDF. */
-export const downloadRegisterPdf = (cycle: Cycle | "ALL", status: StatusFilter = "all") =>
-  download(`/api/meetings/register/pdf?cycle=${cycle}&status=${status}`, `monday_meeting_${cycle.toLowerCase()}.pdf`);
+/** Is the task's coordinator or one of its other officers of a chosen designation? None chosen = all. */
+export function matchesDesignation(task: Pick<RegisterTask, "officers">, chosen: string[]): boolean {
+  return chosen.length === 0 || task.officers.some((d) => chosen.includes(d));
+}
 
-export const downloadAgenda = (date: string, format: "pdf" | "xlsx") =>
-  download(`/api/meetings/${date}/export?format=${format}`, `monday_discussion_agenda_${date}.${format}`);
+/** Designations of the officers on record (kept up to date by the server). */
+export const getDesignations = () => apiFetch<{ designations: string[] }>("/api/users/designations");
+
+function designationQuery(designations: string[]): string {
+  return designations.map((d) => `&designation=${encodeURIComponent(d)}`).join("");
+}
+
+/** Cycle PDF in the Task Report layout. "ALL" = Weekly, Fortnightly and Monthly sections in one PDF. */
+export const downloadRegisterPdf = (cycle: Cycle | "ALL", status: StatusFilter = "all", designations: string[] = []) =>
+  download(
+    `/api/meetings/register/pdf?cycle=${cycle}&status=${status}${designationQuery(designations)}`,
+    `monday_meeting_${cycle.toLowerCase()}.pdf`
+  );
+
+export const downloadAgenda = (date: string, format: "pdf" | "xlsx", designations: string[] = []) =>
+  download(
+    `/api/meetings/${date}/export?format=${format}${designationQuery(designations)}`,
+    `monday_discussion_agenda_${date}.${format}`
+  );

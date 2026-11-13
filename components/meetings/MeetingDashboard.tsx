@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CYCLES,
   CYCLE_HINT,
@@ -26,9 +26,11 @@ import {
   choiceOf,
   codeClass,
   getAgenda,
+  getDesignations,
   getRegister,
   isMondayISO,
   markDiscussed,
+  matchesDesignation,
   matchesStatus,
   mondayOnOrAfterISO,
   rescheduleTask,
@@ -73,6 +75,18 @@ export default function MeetingDashboard() {
   const [dialog, setDialog] = useState<
     { kind: "reschedule"; task: RegisterTask; fromDate: string | null } | { kind: "history"; task: RegisterTask } | null
   >(null);
+  // Designation filter, shared by every tab and download. Empty = All Designations.
+  const [designations, setDesignations] = useState<string[]>([]);
+  const [designationList, setDesignationList] = useState<string[]>([]);
+
+  // Re-read with every reload, so added or renamed designations show up.
+  const loadDesignations = useCallback(async () => {
+    try {
+      setDesignationList((await getDesignations()).designations);
+    } catch {
+      // The designations on the tasks themselves are still offered.
+    }
+  }, []);
 
   const loadRegister = useCallback(async () => {
     try {
@@ -104,10 +118,11 @@ export default function MeetingDashboard() {
         setAgendaDate(a.meetingDate);
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load"));
+    loadDesignations();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadDesignations]);
 
   const selectView = (next: View) => {
     setView(next);
@@ -121,7 +136,7 @@ export default function MeetingDashboard() {
     setBusy(true);
     try {
       await action();
-      await Promise.all([loadRegister(), loadAgenda(agendaDate)]);
+      await Promise.all([loadRegister(), loadAgenda(agendaDate), loadDesignations()]);
       setDialog(null);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Something went wrong");
@@ -162,7 +177,27 @@ export default function MeetingDashboard() {
     return error ? <p className="table-error">{error}</p> : <p className="table-status">Loading...</p>;
   }
 
-  const agendaCount = agenda?.items.length ?? 0;
+  // Every designation on record or on a task (and any still chosen), A–Z.
+  const designationOptions = [
+    ...new Set([...designationList, ...register.tasks.flatMap((t) => t.officers), ...designations].map((d) => d.trim()).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b));
+  const filtering = designations.length > 0;
+  const shownTasks = register.tasks.filter((t) => matchesDesignation(t, designations));
+  const counts = filtering
+    ? {
+        WEEKLY: shownTasks.filter((t) => t.cycle === "WEEKLY").length,
+        FORTNIGHTLY: shownTasks.filter((t) => t.cycle === "FORTNIGHTLY").length,
+        MONTHLY: shownTasks.filter((t) => t.cycle === "MONTHLY").length,
+        ONE_TIME: shownTasks.filter((t) => t.oneTime).length,
+        UNASSIGNED: shownTasks.filter((t) => !t.cycle).length,
+      }
+    : register.counts;
+  const agendaCount = agenda?.items.filter((i) => matchesDesignation(i, designations)).length ?? 0;
+  const inView = (t: RegisterTask) => (view === "UNASSIGNED" ? !t.cycle : view === "ONE_TIME" ? t.oneTime : t.cycle === view);
+  /** The filter control; `pool` = the tasks it counts per designation. */
+  const designationFilter = (pool: RegisterTask[]) => (
+    <DesignationFilter options={designationOptions} pool={pool} value={designations} onChange={setDesignations} />
+  );
 
   return (
     <div className="meeting-page">
@@ -174,7 +209,7 @@ export default function MeetingDashboard() {
             Monday, Next Month, Flexible Date
           </p>
         </div>
-        <AllCyclesDownload />
+        <AllCyclesDownload designations={designations} />
       </div>
 
       {error && <div className="mtg-banner is-error">{error}</div>}
@@ -192,7 +227,7 @@ export default function MeetingDashboard() {
             <span className="mtg-cycle-name">
               <span className={`review-code code-${cycle === "FORTNIGHTLY" ? "F1" : REVIEW_CODE[cycle]}`}>{REVIEW_CODE[cycle]}</span> {CYCLE_LABEL[cycle]} tasks
             </span>
-            <span className="mtg-cycle-count">{register.counts[cycle]}</span>
+            <span className="mtg-cycle-count">{counts[cycle]}</span>
             <span className="mtg-cycle-hint">{CYCLE_HINT[cycle].split(" – ")[1]}</span>
           </button>
         ))}
@@ -206,7 +241,7 @@ export default function MeetingDashboard() {
           <span className="mtg-cycle-name">
             <span className="review-code code-ONE">1×</span> One-time tasks
           </span>
-          <span className="mtg-cycle-count">{register.counts.ONE_TIME}</span>
+          <span className="mtg-cycle-count">{counts.ONE_TIME}</span>
           <span className="mtg-cycle-hint">Next Monday, Next Month or Flexible Date</span>
         </button>
         <button
@@ -231,9 +266,20 @@ export default function MeetingDashboard() {
         </div>
       )}
 
+      {filtering && (
+        <div className="mtg-banner is-info">
+          Showing tasks of {designations.join(", ")} only (as coordinator or other officer). Counts and downloads follow this filter.
+          <button type="button" className="mtg-btn-ghost mtg-btn-sm" onClick={() => setDesignations([])}>
+            Show all designations
+          </button>
+        </div>
+      )}
+
       {view === "AGENDA" ? (
         <AgendaView
           agenda={agenda}
+          designations={designations}
+          filter={designationFilter(agenda?.items ?? [])}
           busy={busy}
           onDate={(d) => loadAgenda(d)}
           onDiscussed={(t, discussed) => run(() => markDiscussed(agenda!.meetingDate, t.id, discussed))}
@@ -254,9 +300,9 @@ export default function MeetingDashboard() {
         <RegisterView
           key={view}
           view={view}
-          tasks={register.tasks.filter((t) =>
-            view === "UNASSIGNED" ? !t.cycle : view === "ONE_TIME" ? t.oneTime : t.cycle === view
-          )}
+          tasks={shownTasks.filter(inView)}
+          designations={designations}
+          filter={designationFilter(register.tasks.filter(inView))}
           upcomingMonday={register.upcomingMonday}
           nextMonthMondays={register.nextMonthMondays}
           busy={busy}
@@ -439,6 +485,8 @@ function ImportantButton({ task, disabled, onClick }: { task: RegisterTask; disa
 function RegisterView({
   view,
   tasks,
+  designations,
+  filter,
   upcomingMonday,
   nextMonthMondays,
   busy,
@@ -450,7 +498,10 @@ function RegisterView({
   onHistory,
 }: {
   view: Cycle | "ONE_TIME" | "UNASSIGNED";
+  /** Already limited to the chosen designations. */
   tasks: RegisterTask[];
+  designations: string[];
+  filter: ReactNode;
   upcomingMonday: string;
   nextMonthMondays: string[];
   busy: boolean;
@@ -522,7 +573,7 @@ function RegisterView({
     if (isUnassigned || isOneTimeView) return;
     setDownloading(true);
     try {
-      await downloadRegisterPdf(view, status);
+      await downloadRegisterPdf(view, status, designations);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Download failed");
     } finally {
@@ -562,6 +613,7 @@ function RegisterView({
             </option>
           ))}
         </select>
+        {filter}
         {isUnassigned && (
           <>
             <span className="mtg-toolbar-gap" />
@@ -599,9 +651,9 @@ function RegisterView({
           </>
         )}
       </div>
-      {!isUnassigned && !isOneTimeView && status !== "all" && (
+      {!isUnassigned && !isOneTimeView && (status !== "all" || designations.length > 0) && (
         <p className="mtg-muted" style={{ margin: "-4px 0 10px" }}>
-          The PDF follows this status filter. Choose “All Statuses” for the complete register.
+          The PDF follows these filters. Choose “All Statuses” and “All Designations” for the complete register.
         </p>
       )}
 
@@ -700,7 +752,9 @@ function RegisterView({
             {rows.length === 0 && (
               <tr>
                 <td colSpan={isUnassigned ? 9 : 8} className="mtg-empty">
-                  {tasks.length === 0
+                  {tasks.length === 0 && designations.length > 0
+                    ? "No tasks of the selected designation(s) here."
+                    : tasks.length === 0
                     ? isUnassigned
                       ? "Every task has a review frequency."
                       : isOneTimeView
@@ -728,6 +782,8 @@ function RegisterView({
  */
 function AgendaView({
   agenda,
+  designations,
+  filter,
   busy,
   onDate,
   onDiscussed,
@@ -738,6 +794,8 @@ function AgendaView({
   onHistory,
 }: {
   agenda: AgendaResponse | null;
+  designations: string[];
+  filter: ReactNode;
   busy: boolean;
   onDate: (date: string) => void;
   onDiscussed: (task: AgendaTask, discussed: boolean) => void;
@@ -752,13 +810,14 @@ function AgendaView({
 
   const date = agenda.meetingDate;
   const goTo = (value: string) => value && onDate(isMondayISO(value) ? value : mondayOnOrAfterISO(value));
-  const items = agenda.items;
+  // Only the chosen designations' tasks, S.N. renumbered (the PDF does the same).
+  const items = agenda.items.filter((i) => matchesDesignation(i, designations)).map((i, n) => ({ ...i, serial: n + 1 }));
   const discussed = items.filter((i) => i.outcome === "DISCUSSED").length;
 
   const download = async (format: "pdf" | "xlsx") => {
     setDownloading(true);
     try {
-      await downloadAgenda(date, format);
+      await downloadAgenda(date, format, designations);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Download failed");
     } finally {
@@ -790,7 +849,7 @@ function AgendaView({
               Reopen
             </button>
           ) : (
-            <button type="button" className="mtg-btn-ghost" disabled={busy || items.length === 0} onClick={onFinalize}>
+            <button type="button" className="mtg-btn-ghost" disabled={busy || agenda.items.length === 0} onClick={onFinalize}>
               Finalize agenda
             </button>
           )}
@@ -848,10 +907,13 @@ function AgendaView({
             Back to next meeting
           </button>
         )}
+        {filter}
       </div>
 
       {items.length === 0 ? (
-        <div className="mtg-empty">No tasks are allocated to this Monday.</div>
+        <div className="mtg-empty">
+          {agenda.items.length > 0 ? "No tasks of the selected designation(s) on this Monday." : "No tasks are allocated to this Monday."}
+        </div>
       ) : (
         <div className="mtg-table-wrap">
           <table className="mtg-table mtg-agenda-table">
@@ -955,13 +1017,13 @@ function AgendaView({
 }
 
 /** One PDF with W, FT and M sections; every open task (not Completed) by default. */
-function AllCyclesDownload() {
+function AllCyclesDownload({ designations }: { designations: string[] }) {
   const [status, setStatus] = useState<StatusFilter>("pending_overdue_running");
   const [downloading, setDownloading] = useState(false);
   const download = async () => {
     setDownloading(true);
     try {
-      await downloadRegisterPdf("ALL", status);
+      await downloadRegisterPdf("ALL", status, designations);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Download failed");
     } finally {
@@ -977,9 +1039,107 @@ function AllCyclesDownload() {
           </option>
         ))}
       </select>
-      <button type="button" className="mtg-btn" onClick={download} disabled={downloading}>
+      <button
+        type="button"
+        className="mtg-btn"
+        onClick={download}
+        disabled={downloading}
+        title={designations.length ? `Only tasks of ${designations.join(", ")}` : undefined}
+      >
         {downloading ? "Preparing PDF..." : "Download W / F1 / F2 / M PDF"}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Multi-select of designations. The list comes from the officer records, each
+ * with the number of tasks (as coordinator or other officer) in `pool`.
+ */
+function DesignationFilter({
+  options,
+  pool,
+  value,
+  onChange,
+}: {
+  options: string[];
+  pool: Pick<RegisterTask, "officers">[];
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const count = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of pool) for (const d of t.officers) m.set(d, (m.get(d) ?? 0) + 1);
+    return m;
+  }, [pool]);
+
+  const chosen = new Set(value);
+  const q = term.trim().toLowerCase();
+  const shown = options.filter((d) => !q || d.toLowerCase().includes(q));
+  const label = value.length === 0 ? "All Designations" : value.length === 1 ? value[0] : `${value.length} designations`;
+  const toggle = (d: string) => onChange(chosen.has(d) ? value.filter((x) => x !== d) : [...value, d]);
+
+  return (
+    <div className="mtg-desig" ref={ref}>
+      <button
+        type="button"
+        className={`mtg-desig-btn ${value.length ? "is-active" : ""}`}
+        aria-haspopup="true"
+        aria-expanded={open}
+        title={value.length ? value.join(", ") : "Filter by designation"}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="mtg-desig-label">{label}</span>
+        <span aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div className="mtg-desig-panel" role="group" aria-label="Filter by designation">
+          <input
+            type="search"
+            placeholder="Search designations"
+            aria-label="Search designations"
+            value={term}
+            autoFocus
+            onChange={(e) => setTerm(e.target.value)}
+          />
+          <label className="mtg-desig-option is-all">
+            <input type="checkbox" checked={value.length === 0} onChange={() => onChange([])} />
+            <span>All Designations</span>
+          </label>
+          <div className="mtg-desig-list">
+            {shown.map((d) => (
+              <label key={d} className="mtg-desig-option">
+                <input type="checkbox" checked={chosen.has(d)} onChange={() => toggle(d)} />
+                <span>{d}</span>
+                <span className="mtg-desig-count">{count.get(d) ?? 0}</span>
+              </label>
+            ))}
+            {shown.length === 0 && <div className="mtg-muted mtg-desig-none">No designation matches.</div>}
+          </div>
+          <div className="mtg-desig-foot">
+            <span className="mtg-muted">{value.length ? `${value.length} selected` : "Tick one or more"}</span>
+            <button type="button" className="mtg-btn mtg-btn-sm" onClick={() => setOpen(false)}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

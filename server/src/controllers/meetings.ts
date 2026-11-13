@@ -65,11 +65,13 @@ function changed(): void {
 
 type RegisterTask = Task & {
   officer: User;
+  additionalAssignees: { officer: User }[];
   officerUpdates: (TaskOfficerUpdate & { officer: User })[];
 };
 
 const registerInclude = {
   officer: true,
+  additionalAssignees: { include: { officer: true } },
   officerUpdates: { include: { officer: true }, orderBy: { createdAt: "desc" as const }, take: 1 },
 };
 
@@ -117,12 +119,35 @@ function scheduleView(task: Task, from: ISODate) {
   };
 }
 
+type TaskOfficers = { officer: { designation: string }; additionalAssignees: { officer: { designation: string } }[] };
+
+function officerDesignations(task: TaskOfficers): string[] {
+  return [...new Set([task.officer, ...task.additionalAssignees.map((a) => a.officer)].map((o) => o.designation.trim()))];
+}
+
+/** Designations chosen in the Monday Meeting filter (?designation=..., repeatable). None = every designation. */
+function designationChoice(value: unknown): Set<string> {
+  const raw = Array.isArray(value) ? value : value === undefined ? [] : [value];
+  return new Set(raw.slice(0, 500).map((v) => String(v).trim()).filter(Boolean));
+}
+
+/** Is the task's coordinator or one of its other officers of a chosen designation? */
+function matchesDesignation(officers: string[], chosen: Set<string>): boolean {
+  return chosen.size === 0 || officers.some((d) => chosen.has(d));
+}
+
+function designationText(chosen: Set<string>): string {
+  return chosen.size ? `  •  Designation: ${[...chosen].join(", ")}` : "";
+}
+
 function registerView(task: RegisterTask, from: ISODate = today()) {
   return {
     id: task.id,
     taskNumber: task.taskNumber,
     title: task.title,
     officer: task.officer.designation,
+    // Coordinator and other officers, for the designation filter.
+    officers: officerDesignations(task),
     status: statusLabel(task),
     dueDate: toISODate(task.dueDate),
     lastDiscussedAt: toISODateOrNull(task.lastDiscussedAt),
@@ -303,6 +328,7 @@ export async function downloadRegisterPdf(req: AuthRequest, res: Response): Prom
     cycle: (queryString(req.query.cycle) ?? "").toUpperCase(),
     status: (queryString(req.query.status) ?? "all").toLowerCase(),
   });
+  const chosen = designationChoice(req.query.designation);
   const all = q.cycle === "ALL";
   const tasks = (
     await prisma.task.findMany({
@@ -310,7 +336,7 @@ export async function downloadRegisterPdf(req: AuthRequest, res: Response): Prom
       include: pdfInclude,
       orderBy: [{ date: "desc" }, { taskNumber: "desc" }],
     })
-  ).filter((t) => matchesStatus(t, q.status));
+  ).filter((t) => matchesStatus(t, q.status) && matchesDesignation(officerDesignations(t), chosen));
 
   const rows = pdfRows(tasks, today(), undefined, true);
   const fortnightly = q.cycle === "FORTNIGHTLY";
@@ -319,7 +345,7 @@ export async function downloadRegisterPdf(req: AuthRequest, res: Response): Prom
     : `Monday Meeting — ${REVIEW_CODE[q.cycle as Cycle]} (${CYCLE_LABEL[q.cycle as Cycle]}) Tasks`;
   const pdf = await exportToPdf(all ? groupedRows(rows, tasks) : fortnightly ? fortnightRows(rows, tasks) : rows, {
     title,
-    subtitle: `Status: ${STATUS_CHOICE_LABEL[q.status]}  •  W = Weekly, F1 = 1st & 3rd Mondays, F2 = 2nd & 4th Mondays, M = Monthly  •  Generated ${generatedAt()}  •  ${tasks.length} task(s)`,
+    subtitle: `Status: ${STATUS_CHOICE_LABEL[q.status]}${designationText(chosen)}  •  W = Weekly, F1 = 1st & 3rd Mondays, F2 = 2nd & 4th Mondays, M = Monthly  •  Generated ${generatedAt()}  •  ${tasks.length} task(s)`,
     footer: `RailWork  ·  ${title}`,
     // The F1 / F2 register shows which of the two each task is.
     columns: all || fortnightly ? ALL_REGISTER_COLUMNS : REGISTER_COLUMNS,
@@ -775,7 +801,15 @@ const OUTCOME_LABEL: Record<string, string> = {
 export async function exportAgenda(req: AuthRequest, res: Response): Promise<void> {
   const meetingDate = validate(mondayDate, param(req, "date"));
   const format = (queryString(req.query.format) ?? "pdf").toLowerCase();
-  const view = await agendaView(meetingDate);
+  const chosen = designationChoice(req.query.designation);
+  const full = await agendaView(meetingDate);
+  // With a designation filter: only those tasks, S.N. renumbered (as on the website).
+  const view = {
+    ...full,
+    items: full.items
+      .filter((item) => matchesDesignation(item.officers, chosen))
+      .map((item, i) => ({ ...item, serial: i + 1 })),
+  };
 
   if (format === "pdf") {
     // Only the tasks allocated to this Monday, in the website's order
@@ -816,7 +850,7 @@ export async function exportAgenda(req: AuthRequest, res: Response): Promise<voi
     const pdf = await exportToPdf(rows, {
       title: `Monday Discussion Agenda — Meeting on ${longDate}`,
       subtitle:
-        `${tasks.length} task(s) allocated to this Monday${important ? ` (${important} marked important)` : ""}  •  ` +
+        `${tasks.length} task(s) allocated to this Monday${important ? ` (${important} marked important)` : ""}${designationText(chosen)}  •  ` +
         `Sorted by date, latest first  •  ${view.finalized ? "Agenda finalized" : "Agenda not yet finalized"}  •  Generated ${generatedAt()}`,
       columns: AGENDA_COLUMNS,
       widths: AGENDA_WIDTHS,

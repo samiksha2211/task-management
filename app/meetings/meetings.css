@@ -619,3 +619,135 @@ html[data-theme="dark"] .mtg-table tbody tr.is-important td {
   overflow: visible;
   min-width: 200px;
 }
+
+/* Designation filter (multi-select) */
+.mtg-banner.is-info { background: var(--mtg-info-bg); color: var(--mtg-info-ink); }
+
+.mtg-toolbar {
+  position: relative;
+}
+
+.mtg-desig {
+  position: relative;
+}
+
+.meeting-page .mtg-desig-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  min-height: 36px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--mtg-text);
+  background: var(--mtg-card);
+  border: 1px solid var(--mtg-line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.meeting-page .mtg-desig-btn.is-active {
+  border-color: var(--mtg-primary);
+  color: var(--mtg-primary);
+  font-weight: 600;
+}
+
+.mtg-desig-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mtg-desig-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--mtg-card);
+  border: 1px solid var(--mtg-line);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+}
+
+.meeting-page .mtg-desig-panel input[type="search"] {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.mtg-desig-list {
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+  border-top: 1px solid var(--mtg-line);
+  padding-top: 4px;
+}
+
+.mtg-desig-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mtg-desig-option:hover {
+  background: var(--mtg-soft);
+}
+
+.mtg-desig-option span:nth-child(2) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mtg-desig-option.is-all {
+  font-weight: 600;
+}
+
+.mtg-desig-count {
+  font-size: 12px;
+  color: var(--mtg-muted);
+  background: var(--mtg-soft);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.mtg-desig-none {
+  padding: 6px 4px;
+}
+
+.mtg-desig-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--mtg-line);
+  padding-top: 8px;
+}
+
+/* Phones: the list opens full width under the toolbar */
+@media (max-width: 560px) {
+  .mtg-desig {
+    position: static;
+    flex: 1 1 100%;
+  }
+  .meeting-page .mtg-desig-btn {
+    width: 100%;
+    max-width: none;
+    justify-content: space-between;
+  }
+  .mtg-desig-panel {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+}
